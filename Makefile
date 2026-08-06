@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-lint backend-typecheck backend-check
+.PHONY: backend-install backend-dev backend-test backend-lint backend-typecheck backend-check db-up db-down db-reset db-smoke
 
 UV ?= python3 -m uv
 
@@ -18,3 +18,16 @@ backend-typecheck:
 	$(UV) --directory backend run mypy
 
 backend-check: backend-lint backend-typecheck backend-test
+
+db-up:
+	docker compose up -d postgres
+
+db-down:
+	docker compose down
+
+db-reset:
+	docker compose down --volumes --remove-orphans
+	docker compose up -d postgres
+
+db-smoke:
+	./scripts/database-smoke-test.sh
