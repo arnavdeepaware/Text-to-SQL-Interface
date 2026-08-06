@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-lint backend-typecheck backend-check db-up db-down db-reset db-smoke
+.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration db-up db-down db-reset db-smoke
 
 UV ?= python3 -m uv
 
@@ -9,7 +9,10 @@ backend-dev:
 	$(UV) --directory backend run uvicorn app.main:create_app --factory --reload
 
 backend-test:
-	$(UV) --directory backend run pytest
+	$(UV) --directory backend run pytest -m "not integration"
+
+backend-integration-test:
+	$(UV) --directory backend run pytest --run-integration -m integration
 
 backend-lint:
 	$(UV) --directory backend run ruff check .
@@ -18,6 +21,8 @@ backend-typecheck:
 	$(UV) --directory backend run mypy
 
 backend-check: backend-lint backend-typecheck backend-test
+
+backend-check-integration: backend-lint backend-typecheck backend-test backend-integration-test
 
 db-up:
 	docker compose up -d postgres

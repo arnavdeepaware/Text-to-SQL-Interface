@@ -24,6 +24,15 @@ Install the backend toolchain with uv:
 make backend-install
 ```
 
+Start local PostgreSQL when you need database-backed checks:
+
+```bash
+make db-up
+make db-smoke
+```
+
+The backend reads `TEXT_TO_SQL_DATABASE_*` variables and defaults to the local Docker read-only role. Keep real overrides in `.env`; `.env.example` lists variable names only.
+
 ## Development
 
 Start the FastAPI backend locally:
@@ -40,10 +49,22 @@ make backend-lint
 make backend-typecheck
 ```
 
+Run the opt-in database integration tests after PostgreSQL is running:
+
+```bash
+make backend-integration-test
+```
+
 Run the complete backend check before finishing backend work:
 
 ```bash
 make backend-check
+```
+
+To include database integration tests in the complete backend pass:
+
+```bash
+make backend-check-integration
 ```
 
 ## Evaluation

@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.116,<1.0",
     "pydantic-settings>=2.10,<3.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "sqlalchemy>=2.0,<3.0",
     "uvicorn[standard]>=0.35,<1.0",
 ]
 
@@ -25,6 +27,9 @@ package = false
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: tests that require the Docker PostgreSQL service",
+]
 
 [tool.ruff]
 line-length = 100
