@@ -18,11 +18,33 @@ Phase 0 (repository foundation) is in progress. See [docs/STATUS.md](docs/STATUS
 
 ## Setup
 
-Placeholder — dependencies and application setup will be added in a later phase.
+Install the backend toolchain with uv:
+
+```bash
+make backend-install
+```
 
 ## Development
 
-Placeholder — follow [AGENTS.md](AGENTS.md) and run the smallest relevant check before broader validation.
+Start the FastAPI backend locally:
+
+```bash
+make backend-dev
+```
+
+Run focused checks while developing:
+
+```bash
+make backend-test
+make backend-lint
+make backend-typecheck
+```
+
+Run the complete backend check before finishing backend work:
+
+```bash
+make backend-check
+```
 
 ## Evaluation
 
