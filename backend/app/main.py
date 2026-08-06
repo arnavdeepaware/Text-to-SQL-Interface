@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import Engine
 
+from app.api.schema import SchemaCatalogFactory, create_schema_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.db.engine import check_database_connection, create_database_engine
 from app.db.lifecycle import EngineFactory, database_lifespan, get_database_engine
+from app.services.schema_catalog import SchemaCatalogService
 
 DatabaseCheck = Callable[[Engine], bool]
 
@@ -29,6 +31,7 @@ def create_app(
     settings: Settings | None = None,
     engine_factory: EngineFactory = create_database_engine,
     database_check: DatabaseCheck = check_database_connection,
+    schema_catalog_factory: SchemaCatalogFactory | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -40,6 +43,12 @@ def create_app(
 
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
     register_exception_handlers(app)
+    app.include_router(
+        create_schema_router(
+            settings,
+            schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
+        )
+    )
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:

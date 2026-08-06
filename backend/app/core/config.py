@@ -21,6 +21,23 @@ class Settings(BaseSettings):
     database_statement_timeout_ms: int = Field(default=5_000, ge=100, le=60_000)
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=0, ge=0, le=20)
+    schema_introspection_schemas: tuple[str, ...] = ("commerce",)
+    schema_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+    schema_sample_limit: int = Field(default=20, ge=0, le=100)
+    schema_sample_timeout_ms: int = Field(default=1_000, ge=100, le=10_000)
+    schema_sample_columns: tuple[str, ...] = (
+        "commerce.customers.region",
+        "commerce.customers.country_code",
+        "commerce.orders.status",
+        "commerce.orders.billing_region",
+        "commerce.orders.currency",
+        "commerce.payments.payment_method",
+        "commerce.payments.status",
+        "commerce.refunds.status",
+        "commerce.refunds.reason",
+        "commerce.shipments.carrier",
+        "commerce.shipments.status",
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="TEXT_TO_SQL_",
