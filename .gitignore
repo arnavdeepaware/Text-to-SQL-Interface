@@ -1,0 +1,30 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage/
+
+# JavaScript
+node_modules/
+dist/
+build/
+
+# Local data and generated output
+*.db
+*.sqlite
+*.sqlite3
+evals/reports/*.json
+evals/reports/*.html
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/

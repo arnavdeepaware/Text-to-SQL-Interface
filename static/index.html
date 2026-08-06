@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Text-to-SQL Interface</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="query-panel">
+        <div>
+          <p class="eyebrow">SQLite demo workspace</p>
+          <h1>Text-to-SQL Interface</h1>
+        </div>
+        <form id="query-form">
+          <label for="question">Ask a data question</label>
+          <textarea
+            id="question"
+            name="question"
+            rows="4"
+            placeholder="Which customers generated the most revenue?"
+          ></textarea>
+          <div class="actions">
+            <button type="submit">Run query</button>
+            <button type="button" id="sample-button">Use sample</button>
+          </div>
+        </form>
+        <div class="schema-panel">
+          <h2>Schema</h2>
+          <div id="schema"></div>
+        </div>
+      </section>
+
+      <section class="results-panel">
+        <div class="status-row">
+          <div>
+            <p class="eyebrow">Generated SQL</p>
+            <pre id="sql">Ask a question to generate SQL.</pre>
+          </div>
+          <div class="confidence">
+            <span id="confidence">--</span>
+            <small>confidence</small>
+          </div>
+        </div>
+        <p id="rationale" class="rationale"></p>
+        <div id="error" class="error" hidden></div>
+        <div class="table-wrap">
+          <table id="results"></table>
+        </div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
