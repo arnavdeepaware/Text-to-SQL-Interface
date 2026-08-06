@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration db-up db-down db-reset db-smoke
+.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration compose-check db-up db-down db-reset db-smoke check
 
 UV ?= python3 -m uv
 
@@ -24,8 +24,11 @@ backend-check: backend-lint backend-typecheck backend-test
 
 backend-check-integration: backend-lint backend-typecheck backend-test backend-integration-test
 
+compose-check:
+	docker compose config -q
+
 db-up:
-	docker compose up -d postgres
+	docker compose up -d --wait postgres
 
 db-down:
 	docker compose down
@@ -36,3 +39,5 @@ db-reset:
 
 db-smoke:
 	./scripts/database-smoke-test.sh
+
+check: compose-check backend-check db-up db-smoke backend-integration-test
