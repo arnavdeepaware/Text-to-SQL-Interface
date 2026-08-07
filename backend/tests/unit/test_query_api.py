@@ -214,6 +214,53 @@ async def test_malformed_provider_output_returns_stable_public_error() -> None:
     }
 
 
+async def test_multi_statement_generated_sql_returns_stable_public_error() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT order_id FROM commerce.orders; SELECT customer_id FROM commerce.customers;",
+        explanation="Unsafe multi-statement SQL.",
+        model_confidence=0.1,
+        tables_used=["commerce.orders", "commerce.customers"],
+        columns_used=["commerce.orders.order_id", "commerce.customers.customer_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+    response = await post_draft(
+        "Show gross revenue",
+        generator=FakeSQLGenerator(result=result),
+        request_id="req-sql-validation",
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == {
+        "code": "sql_validation_failed",
+        "message": "Generated SQL failed safety validation.",
+        "request_id": "req-sql-validation",
+    }
+
+
+async def test_generated_sql_with_invented_column_returns_stable_public_error() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.secret_margin FROM commerce.orders AS orders;",
+        explanation="Unsafe hallucinated column.",
+        model_confidence=0.1,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.secret_margin"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+    response = await post_draft(
+        "Show gross revenue",
+        generator=FakeSQLGenerator(result=result),
+        request_id="req-invented-column",
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "sql_validation_failed"
+    assert response.json()["error"]["request_id"] == "req-invented-column"
+
+
 async def test_query_draft_logs_request_id(monkeypatch: MonkeyPatch) -> None:
     logger = Mock()
     monkeypatch.setattr("app.api.query.logger", logger)

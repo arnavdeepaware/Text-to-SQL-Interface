@@ -10,6 +10,7 @@ from app.domain.sql_generation import SQLGenerationDraft
 from app.providers.sql_generation import SQLGenerator
 from app.services.prompt_engine import SchemaAwarePromptEngine
 from app.services.schema_retrieval import LexicalSchemaRetriever
+from app.services.sql_guardrails import GeneratedSQLValidator, SQLGuardrailValidationError
 
 
 @dataclass(frozen=True)
@@ -49,11 +50,13 @@ class QueryDraftService:
         sql_generator: SQLGenerator,
         retriever: LexicalSchemaRetriever | None = None,
         prompt_engine: SchemaAwarePromptEngine | None = None,
+        sql_validator: GeneratedSQLValidator | None = None,
     ) -> None:
         self._settings = settings
         self._sql_generator = sql_generator
         self._retriever = retriever or LexicalSchemaRetriever(settings)
         self._prompt_engine = prompt_engine or SchemaAwarePromptEngine(settings)
+        self._sql_validator = sql_validator or GeneratedSQLValidator()
 
     def draft(self, question: str, catalog: SchemaCatalog) -> QueryDraftResult:
         normalized_question = normalize_question(question)
@@ -79,6 +82,10 @@ class QueryDraftService:
             return QueryDraftResult(
                 clarification=provider_clarification(draft.result.clarification_options)
             )
+        if draft.result.sql is not None:
+            validation = self._sql_validator.validate(draft.result.sql, catalog)
+            if not validation.valid:
+                raise SQLGuardrailValidationError(validation)
         return QueryDraftResult(draft=draft)
 
 

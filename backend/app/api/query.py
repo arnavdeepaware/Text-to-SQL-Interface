@@ -27,6 +27,7 @@ from app.services.query_draft import (
     normalize_question,
 )
 from app.services.schema_catalog import SchemaCatalogService
+from app.services.sql_guardrails import SQLGuardrailValidationError
 
 
 class SQLGeneratorProvider(Protocol):
@@ -111,6 +112,15 @@ def create_query_router(
                 extra={"request_id": request_id(request), "error_code": exc.public_code},
             )
             raise public_error_from_generation_error(exc) from exc
+        except SQLGuardrailValidationError as exc:
+            logger.warning(
+                "Query draft SQL validation failed",
+                extra={
+                    "request_id": request_id(request),
+                    "finding_codes": [finding.code for finding in exc.result.findings],
+                },
+            )
+            raise public_error_from_sql_validation_error(exc) from exc
 
         current_request_id = request_id(request)
         if result.clarification is not None:
@@ -186,6 +196,16 @@ def public_error_from_generation_error(error: SQLGenerationError) -> PublicAPIEr
     elif isinstance(error, SQLGenerationProviderUnavailableError):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return PublicAPIError(status_code, error.public_code, error.public_message)
+
+
+def public_error_from_sql_validation_error(
+    error: SQLGuardrailValidationError,
+) -> PublicAPIError:
+    return PublicAPIError(
+        status.HTTP_502_BAD_GATEWAY,
+        error.public_code,
+        error.public_message,
+    )
 
 
 def sql_draft_response(
