@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "examples": [
+    {
+      "id": "gross_revenue_by_month",
+      "question": "Show gross revenue by month.",
+      "sql": "SELECT date_trunc('month', orders.ordered_at) AS order_month, sum(orders.total_cents) AS gross_revenue_cents FROM commerce.orders AS orders GROUP BY order_month ORDER BY order_month;",
+      "required_tables": ["orders"],
+      "required_columns": ["orders.ordered_at", "orders.total_cents"],
+      "glossary_terms": ["gross revenue"],
+      "tags": ["revenue", "sales", "monthly"]
+    },
+    {
+      "id": "net_revenue",
+      "question": "Calculate net revenue.",
+      "sql": "SELECT sum(orders.total_cents) - coalesce(sum(refunds.amount_cents) FILTER (WHERE refunds.status = 'succeeded'), 0) AS net_revenue_cents FROM commerce.orders AS orders LEFT JOIN commerce.payments AS payments ON payments.order_id = orders.order_id LEFT JOIN commerce.refunds AS refunds ON refunds.payment_id = payments.payment_id;",
+      "required_tables": ["orders", "payments", "refunds"],
+      "required_columns": ["orders.total_cents", "payments.order_id", "refunds.payment_id", "refunds.amount_cents", "refunds.status"],
+      "glossary_terms": ["net revenue"],
+      "tags": ["revenue", "refunds"]
+    },
+    {
+      "id": "orders_by_customer_region",
+      "question": "Count completed orders by customer region.",
+      "sql": "SELECT customers.region, count(*) AS completed_orders FROM commerce.orders AS orders JOIN commerce.customers AS customers ON orders.customer_id = customers.customer_id WHERE orders.status = 'delivered' GROUP BY customers.region ORDER BY customers.region;",
+      "required_tables": ["orders", "customers"],
+      "required_columns": ["customers.region", "orders.customer_id", "orders.status"],
+      "glossary_terms": ["completed order"],
+      "tags": ["customers", "region", "orders"]
+    },
+    {
+      "id": "sales_by_category",
+      "question": "Show gross revenue by product category.",
+      "sql": "SELECT categories.name AS category_name, sum(order_items.line_total_cents) AS gross_revenue_cents FROM commerce.order_items AS order_items JOIN commerce.products AS products ON order_items.product_id = products.product_id JOIN commerce.categories AS categories ON products.category_id = categories.category_id GROUP BY categories.name ORDER BY category_name;",
+      "required_tables": ["order_items", "products", "categories"],
+      "required_columns": ["order_items.product_id", "order_items.line_total_cents", "products.category_id", "categories.name"],
+      "glossary_terms": ["gross revenue"],
+      "tags": ["revenue", "products", "categories"]
+    },
+    {
+      "id": "refunds_by_reason",
+      "question": "Show succeeded refund amount by reason.",
+      "sql": "SELECT refunds.reason, sum(refunds.amount_cents) AS refunded_cents FROM commerce.refunds AS refunds WHERE refunds.status = 'succeeded' GROUP BY refunds.reason ORDER BY refunds.reason;",
+      "required_tables": ["refunds"],
+      "required_columns": ["refunds.reason", "refunds.amount_cents", "refunds.status"],
+      "glossary_terms": ["refunded order"],
+      "tags": ["refunds"]
+    },
+    {
+      "id": "delivery_time_by_carrier",
+      "question": "Average delivery time by carrier.",
+      "sql": "SELECT shipments.carrier, avg(shipments.delivered_at - shipments.shipped_at) AS average_delivery_time FROM commerce.shipments AS shipments WHERE shipments.shipped_at IS NOT NULL AND shipments.delivered_at IS NOT NULL GROUP BY shipments.carrier ORDER BY shipments.carrier;",
+      "required_tables": ["shipments"],
+      "required_columns": ["shipments.carrier", "shipments.shipped_at", "shipments.delivered_at"],
+      "glossary_terms": ["delivery time"],
+      "tags": ["delivery", "shipping"]
+    }
+  ]
+}

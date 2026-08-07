@@ -1,26 +1,77 @@
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from typing import Literal
+
 from fastapi import FastAPI
 from pydantic import BaseModel
+from sqlalchemy import Engine
 
-from app.core.config import get_settings
+from app.api.query import SQLGeneratorFactory, create_query_router
+from app.api.schema import SchemaCatalogFactory, create_schema_router
+from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.request_id import RequestIDMiddleware
+from app.db.engine import check_database_connection, create_database_engine
+from app.db.lifecycle import EngineFactory, database_lifespan, get_database_engine
+from app.services.schema_catalog import SchemaCatalogService
+
+DatabaseCheck = Callable[[Engine], bool]
+
+
+class ComponentHealth(BaseModel):
+    status: Literal["ok", "unavailable"]
 
 
 class HealthResponse(BaseModel):
-    status: str
+    status: Literal["ok", "degraded"]
     version: str
+    checks: dict[str, ComponentHealth]
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+def create_app(
+    settings: Settings | None = None,
+    engine_factory: EngineFactory = create_database_engine,
+    database_check: DatabaseCheck = check_database_connection,
+    schema_catalog_factory: SchemaCatalogFactory | None = None,
+    sql_generator_factory: SQLGeneratorFactory | None = None,
+) -> FastAPI:
+    settings = settings or get_settings()
     configure_logging(settings)
 
-    app = FastAPI(title=settings.app_name, version=settings.app_version)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        async with database_lifespan(app, settings, engine_factory):
+            yield
+
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
+    app.include_router(
+        create_schema_router(
+            settings,
+            schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
+        )
+    )
+    app.include_router(
+        create_query_router(
+            settings,
+            schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
+            sql_generator_factory=sql_generator_factory,
+        )
+    )
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
-        return HealthResponse(status="ok", version=settings.app_version)
+        database_ok = database_check(get_database_engine(app))
+        database_status: Literal["ok", "unavailable"] = "ok" if database_ok else "unavailable"
+        app_status: Literal["ok", "degraded"] = "ok" if database_ok else "degraded"
+
+        return HealthResponse(
+            status=app_status,
+            version=settings.app_version,
+            checks={"database": ComponentHealth(status=database_status)},
+        )
 
     return app
 

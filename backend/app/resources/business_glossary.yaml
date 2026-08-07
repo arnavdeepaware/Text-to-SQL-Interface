@@ -1,0 +1,45 @@
+version: 1
+terms:
+  - name: gross revenue
+    definition: Total order value before refunds, using order total cents.
+    expression: sum(orders.total_cents)
+    related_tables:
+      - orders
+    related_columns:
+      - orders.total_cents
+  - name: net revenue
+    definition: Gross revenue minus succeeded refund amounts.
+    expression: sum(orders.total_cents) - sum(refunds.amount_cents where refunds.status = 'succeeded')
+    related_tables:
+      - orders
+      - payments
+      - refunds
+    related_columns:
+      - orders.total_cents
+      - refunds.amount_cents
+      - refunds.status
+  - name: completed order
+    definition: An order with status delivered.
+    expression: orders.status = 'delivered'
+    related_tables:
+      - orders
+    related_columns:
+      - orders.status
+  - name: refunded order
+    definition: An order with at least one succeeded refund through its payment records.
+    expression: refunds.status = 'succeeded'
+    related_tables:
+      - orders
+      - payments
+      - refunds
+    related_columns:
+      - refunds.status
+      - payments.order_id
+  - name: delivery time
+    definition: Time elapsed between shipment shipped_at and delivered_at timestamps.
+    expression: shipments.delivered_at - shipments.shipped_at
+    related_tables:
+      - shipments
+    related_columns:
+      - shipments.shipped_at
+      - shipments.delivered_at

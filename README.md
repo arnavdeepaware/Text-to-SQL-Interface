@@ -14,7 +14,7 @@ The root-level Python prototype is existing exploratory work; the planned implem
 
 ## Status
 
-Phase 0 (repository foundation) is in progress. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Phase 0 (repository foundation) is complete. The next phase is schema introspection and schema-aware metadata. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Setup
 
@@ -24,6 +24,15 @@ Install the backend toolchain with uv:
 make backend-install
 ```
 
+Start local PostgreSQL when you need database-backed checks:
+
+```bash
+make db-up
+make db-smoke
+```
+
+The backend reads `TEXT_TO_SQL_DATABASE_*` variables and defaults to the local Docker read-only role. Keep real overrides in `.env`; `.env.example` lists variable names only.
+
 ## Development
 
 Start the FastAPI backend locally:
@@ -32,7 +41,7 @@ Start the FastAPI backend locally:
 make backend-dev
 ```
 
-Run focused checks while developing:
+Run focused backend checks while developing:
 
 ```bash
 make backend-test
@@ -40,11 +49,38 @@ make backend-lint
 make backend-typecheck
 ```
 
+Validate Docker Compose:
+
+```bash
+make compose-check
+```
+
+Run the opt-in database integration tests after PostgreSQL is running:
+
+```bash
+make backend-integration-test
+```
+
 Run the complete backend check before finishing backend work:
 
 ```bash
 make backend-check
 ```
+
+To include database integration tests in the complete backend pass:
+
+```bash
+make backend-check-integration
+```
+
+Mirror the main CI checks locally:
+
+```bash
+make check
+make db-down
+```
+
+`make check` validates Compose, runs Ruff, mypy, unit tests, starts PostgreSQL, smoke-tests the seed database, and runs integration tests. `make db-down` stops the local database afterward.
 
 ## Evaluation
 

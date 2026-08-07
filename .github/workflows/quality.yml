@@ -1,0 +1,48 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend:
+    name: Backend and database checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install backend dependencies
+        run: make backend-install
+
+      - name: Validate Docker Compose
+        run: make compose-check
+
+      - name: Run backend unit quality checks
+        run: make backend-check
+
+      - name: Start PostgreSQL service
+        run: make db-up
+
+      - name: Smoke test PostgreSQL
+        run: make db-smoke
+
+      - name: Run backend integration tests
+        run: make backend-integration-test
+
+      - name: Stop PostgreSQL service
+        if: always()
+        run: make db-down
