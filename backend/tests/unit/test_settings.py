@@ -26,6 +26,8 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_port == 5432
     assert settings.database_name == "text_to_sql"
     assert settings.database_user == "text_to_sql_reader"
+    assert settings.sql_guardrail_max_subquery_depth == 3
+    assert settings.sql_guardrail_max_returned_rows == 1000
 
 
 def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:

@@ -12,6 +12,7 @@ class SQLValidationFinding:
 
     code: str
     message: str
+    rule_name: str
     severity: SQLValidationSeverity = "error"
 
 
@@ -60,6 +61,9 @@ class SQLValidationMetadata:
     functions: tuple[str, ...] = ()
     ctes: tuple[str, ...] = ()
     subquery_depth: int = 0
+    effective_limit: int | None = None
+    limit_was_added: bool = False
+    limit_was_reduced: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class SQLValidationResult:
     """Fail-closed generated SQL validation result."""
 
     sql: str
+    original_sql: str
     valid: bool
     metadata: SQLValidationMetadata
     findings: tuple[SQLValidationFinding, ...] = ()

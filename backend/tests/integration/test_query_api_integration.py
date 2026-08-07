@@ -38,7 +38,10 @@ async def test_query_draft_endpoint_uses_seeded_schema_with_fake_generator() -> 
     payload = response.json()
     assert payload["result_type"] == "sql_draft"
     assert payload["request_id"] == "req-integration"
-    assert payload["sql"] == "SELECT sum(orders.total_cents) FROM commerce.orders AS orders;"
+    assert (
+        payload["sql"]
+        == "SELECT SUM(orders.total_cents) FROM commerce.orders AS orders LIMIT 1000"
+    )
 
 
 @pytest.mark.integration

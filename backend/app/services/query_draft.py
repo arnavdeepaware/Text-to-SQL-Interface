@@ -56,7 +56,7 @@ class QueryDraftService:
         self._sql_generator = sql_generator
         self._retriever = retriever or LexicalSchemaRetriever(settings)
         self._prompt_engine = prompt_engine or SchemaAwarePromptEngine(settings)
-        self._sql_validator = sql_validator or GeneratedSQLValidator()
+        self._sql_validator = sql_validator or GeneratedSQLValidator(settings)
 
     def draft(self, question: str, catalog: SchemaCatalog) -> QueryDraftResult:
         normalized_question = normalize_question(question)
@@ -86,6 +86,11 @@ class QueryDraftService:
             validation = self._sql_validator.validate(draft.result.sql, catalog)
             if not validation.valid:
                 raise SQLGuardrailValidationError(validation)
+            if validation.sql != draft.result.sql:
+                draft = SQLGenerationDraft(
+                    result=draft.result.model_copy(update={"sql": validation.sql}),
+                    telemetry=draft.telemetry,
+                )
         return QueryDraftResult(draft=draft)
 
 

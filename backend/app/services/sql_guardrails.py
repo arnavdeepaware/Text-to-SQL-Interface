@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, TypeGuard
+import logging
+from dataclasses import dataclass, replace
+from typing import Any, Protocol, TypeGuard
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
+from app.core.config import Settings
 from app.domain.schema import DatabaseSchema
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_guardrails import (
@@ -21,20 +23,7 @@ from app.domain.sql_guardrails import (
 )
 
 POSTGRES_DIALECT = "postgres"
-
-UNSAFE_NODE_TYPES = (
-    exp.Insert,
-    exp.Update,
-    exp.Delete,
-    exp.Create,
-    exp.Drop,
-    exp.Command,
-    exp.Merge,
-    exp.Copy,
-    exp.Transaction,
-    exp.Commit,
-    exp.Rollback,
-)
+logger = logging.getLogger(__name__)
 
 
 class SQLGuardrailValidationError(RuntimeError):
@@ -74,13 +63,236 @@ class SourceInfo:
         return self.table.identifier
 
 
+@dataclass(frozen=True)
+class SQLPolicyContext:
+    original_sql: str
+    statements: tuple[exp.Expression, ...]
+    statement: exp.Expression | None
+    settings: Settings
+
+
+class GuardrailRule(Protocol):
+    """Composable SQL policy rule."""
+
+    name: str
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]: ...
+
+
+class SingleStatementRule:
+    name = "SingleStatementRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if len(context.statements) == 1:
+            return ()
+        return (
+            finding(
+                self.name,
+                "multiple_statements",
+                "Generated SQL must contain exactly one statement.",
+            ),
+        )
+
+
+class StatementClassificationRule:
+    name = "StatementClassificationRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if context.statement is None:
+            return ()
+        statement_type = classify_statement(context.statement)
+        if statement_type == "select":
+            return ()
+        if statement_type == "command":
+            return (
+                finding(
+                    self.name,
+                    "unclassified_statement",
+                    "Generated SQL contains a command the parser cannot classify safely.",
+                ),
+            )
+        return (
+            finding(
+                self.name,
+                "unsupported_statement_type",
+                "Generated SQL must be a SELECT statement.",
+            ),
+        )
+
+
+class StructuralMutationRule:
+    name = "StructuralMutationRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if context.statement is None:
+            return ()
+
+        findings: list[SQLValidationFinding] = []
+        for node_name in unsafe_node_names(context.statement):
+            findings.append(
+                finding(
+                    self.name,
+                    "blocked_statement_node",
+                    f"Generated SQL contains blocked statement node `{node_name}`.",
+                )
+            )
+        return tuple(findings)
+
+
+class SelectIntoRule:
+    name = "SelectIntoRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if context.statement is None:
+            return ()
+        has_select_into = any(
+            select.args.get("into") is not None
+            for select in context.statement.find_all(exp.Select)
+        )
+        if has_select_into:
+            return (
+                finding(
+                    self.name,
+                    "select_into_blocked",
+                    "Generated SQL must not use SELECT INTO.",
+                ),
+            )
+        return ()
+
+
+class LockingClauseRule:
+    name = "LockingClauseRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if context.statement is None:
+            return ()
+        locks = tuple(context.statement.find_all(exp.Lock))
+        if not locks:
+            return ()
+        return tuple(
+            finding(
+                self.name,
+                "locking_clause_blocked",
+                "Generated SQL must not use locking clauses such as FOR UPDATE.",
+            )
+            for _lock in locks
+        )
+
+
+class MaxSubqueryDepthRule:
+    name = "MaxSubqueryDepthRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if context.statement is None:
+            return ()
+        depth = max_subquery_depth(context.statement)
+        if depth <= context.settings.sql_guardrail_max_subquery_depth:
+            return ()
+        return (
+            finding(
+                self.name,
+                "subquery_depth_exceeded",
+                "Generated SQL exceeds the maximum allowed subquery depth.",
+            ),
+        )
+
+
+class LimitRule:
+    name = "LimitRule"
+
+    def evaluate(self, context: SQLPolicyContext) -> tuple[SQLValidationFinding, ...]:
+        if not isinstance(context.statement, exp.Select):
+            return ()
+        limit = context.statement.args.get("limit")
+        if limit is None:
+            return ()
+        parsed_limit = literal_limit_value(limit)
+        if parsed_limit is None:
+            return (
+                finding(
+                    self.name,
+                    "unclassifiable_limit",
+                    "Generated SQL uses a LIMIT value that cannot be classified safely.",
+                ),
+            )
+        if parsed_limit < 0:
+            return (
+                finding(
+                    self.name,
+                    "invalid_limit",
+                    "Generated SQL uses a negative LIMIT.",
+                ),
+            )
+        return ()
+
+    def apply(self, statement: exp.Expression, settings: Settings) -> LimitRewriteResult:
+        if not isinstance(statement, exp.Select):
+            return LimitRewriteResult(statement=statement, effective_limit=None)
+
+        rewritten = statement.copy()
+        limit = rewritten.args.get("limit")
+        if limit is None:
+            rewritten = rewritten.limit(settings.sql_guardrail_max_returned_rows)
+            return LimitRewriteResult(
+                statement=rewritten,
+                effective_limit=settings.sql_guardrail_max_returned_rows,
+                limit_was_added=True,
+            )
+
+        parsed_limit = literal_limit_value(limit)
+        if parsed_limit is None:
+            return LimitRewriteResult(statement=rewritten, effective_limit=None)
+        if parsed_limit > settings.sql_guardrail_max_returned_rows:
+            rewritten = rewritten.limit(settings.sql_guardrail_max_returned_rows)
+            return LimitRewriteResult(
+                statement=rewritten,
+                effective_limit=settings.sql_guardrail_max_returned_rows,
+                limit_was_reduced=True,
+            )
+        return LimitRewriteResult(statement=rewritten, effective_limit=parsed_limit)
+
+
+@dataclass(frozen=True)
+class LimitRewriteResult:
+    statement: exp.Expression
+    effective_limit: int | None
+    limit_was_added: bool = False
+    limit_was_reduced: bool = False
+
+
+DEFAULT_RULES: tuple[GuardrailRule, ...] = (
+    SingleStatementRule(),
+    StatementClassificationRule(),
+    StructuralMutationRule(),
+    SelectIntoRule(),
+    LockingClauseRule(),
+    MaxSubqueryDepthRule(),
+    LimitRule(),
+)
+
+
 class GeneratedSQLValidator:
     """Validate generated SQL through PostgreSQL AST parsing and schema resolution."""
+
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        rules: tuple[GuardrailRule, ...] = DEFAULT_RULES,
+    ) -> None:
+        self._settings = settings or Settings()
+        self._rules = rules
 
     def validate(self, sql: str, catalog: SchemaCatalog) -> SQLValidationResult:
         stripped_sql = sql.strip()
         if not stripped_sql:
-            return invalid_result(sql, "empty_sql", "Generated SQL is empty.")
+            result = invalid_result(
+                sql,
+                "ParseRule",
+                "empty_sql",
+                "Generated SQL is empty.",
+            )
+            log_policy_decision(result)
+            return result
 
         try:
             parsed = sqlglot.parse(
@@ -89,67 +301,164 @@ class GeneratedSQLValidator:
                 error_level=ErrorLevel.RAISE,
             )
         except ParseError:
-            return invalid_result(
+            result = invalid_result(
                 sql,
+                "ParseRule",
                 "malformed_sql",
                 "Generated SQL could not be parsed as PostgreSQL.",
             )
+            log_policy_decision(result)
+            return result
 
         statements = tuple(statement for statement in parsed if statement is not None)
         if not statements:
-            return invalid_result(
+            result = invalid_result(
                 sql,
+                "ParseRule",
                 "malformed_sql",
                 "Generated SQL could not be parsed as PostgreSQL.",
             )
-        if len(statements) != 1:
-            return invalid_result(
-                sql,
-                "multiple_statements",
-                "Generated SQL must contain exactly one statement.",
-            )
+            log_policy_decision(result)
+            return result
 
-        statement = statements[0]
-        findings: list[SQLValidationFinding] = []
-        statement_type = classify_statement(statement)
-        if statement_type != "select":
-            findings.append(
-                SQLValidationFinding(
-                    "unsupported_statement_type",
-                    "Generated SQL must be a SELECT statement.",
-                )
-            )
+        statement = statements[0] if len(statements) == 1 else None
+        context = SQLPolicyContext(
+            original_sql=sql,
+            statements=statements,
+            statement=statement,
+            settings=self._settings,
+        )
+        findings = [finding for rule in self._rules for finding in rule.evaluate(context)]
 
-        unsafe_nodes = unsafe_node_names(statement)
-        if unsafe_nodes:
-            findings.append(
-                SQLValidationFinding(
-                    "unsafe_statement_node",
-                    "Generated SQL contains a non-read-only statement node: "
-                    f"{', '.join(unsafe_nodes)}.",
-                )
+        if statement is None:
+            result = SQLValidationResult(
+                sql=sql,
+                original_sql=sql,
+                valid=False,
+                metadata=SQLValidationMetadata(statement_type="unknown"),
+                findings=tuple(findings),
             )
+            log_policy_decision(result)
+            return result
 
         metadata = extract_metadata(statement, catalog.database_schema, findings)
-        return SQLValidationResult(
-            sql=sql,
+        if has_error_findings(findings):
+            result = SQLValidationResult(
+                sql=sql,
+                original_sql=sql,
+                valid=False,
+                metadata=metadata,
+                findings=tuple(findings),
+            )
+            log_policy_decision(result)
+            return result
+
+        limit_result = limit_rule(self._rules).apply(statement, self._settings)
+        rewritten_sql = limit_result.statement.sql(dialect=POSTGRES_DIALECT)
+        reparsed = reparse_single_statement(rewritten_sql)
+        if reparsed is None:
+            findings.append(
+                finding(
+                    "LimitRule",
+                    "limit_rewrite_invalid",
+                    "Generated SQL LIMIT rewrite did not produce valid PostgreSQL.",
+                )
+            )
+            result = SQLValidationResult(
+                sql=sql,
+                original_sql=sql,
+                valid=False,
+                metadata=metadata,
+                findings=tuple(findings),
+            )
+            log_policy_decision(result)
+            return result
+
+        rewritten_metadata = extract_metadata(reparsed, catalog.database_schema, findings)
+        rewritten_metadata = replace(
+            rewritten_metadata,
+            effective_limit=limit_result.effective_limit,
+            limit_was_added=limit_result.limit_was_added,
+            limit_was_reduced=limit_result.limit_was_reduced,
+        )
+        result = SQLValidationResult(
+            sql=rewritten_sql,
+            original_sql=sql,
             valid=not has_error_findings(findings),
-            metadata=metadata,
+            metadata=rewritten_metadata,
             findings=tuple(findings),
         )
+        log_policy_decision(result)
+        return result
 
 
-def invalid_result(sql: str, code: str, message: str) -> SQLValidationResult:
+def invalid_result(sql: str, rule_name: str, code: str, message: str) -> SQLValidationResult:
     return SQLValidationResult(
         sql=sql,
+        original_sql=sql,
         valid=False,
         metadata=SQLValidationMetadata(statement_type="unknown"),
-        findings=(SQLValidationFinding(code, message),),
+        findings=(finding(rule_name, code, message),),
     )
+
+
+def finding(rule_name: str, code: str, message: str) -> SQLValidationFinding:
+    return SQLValidationFinding(code=code, message=message, rule_name=rule_name)
 
 
 def has_error_findings(findings: list[SQLValidationFinding]) -> bool:
     return any(finding.severity == "error" for finding in findings)
+
+
+def reparse_single_statement(sql: str) -> exp.Expression | None:
+    try:
+        statements = tuple(
+            statement
+            for statement in sqlglot.parse(
+                sql,
+                read=POSTGRES_DIALECT,
+                error_level=ErrorLevel.RAISE,
+            )
+            if statement is not None
+        )
+    except ParseError:
+        return None
+    if len(statements) != 1:
+        return None
+    return statements[0]
+
+
+def limit_rule(rules: tuple[GuardrailRule, ...]) -> LimitRule:
+    for rule in rules:
+        if isinstance(rule, LimitRule):
+            return rule
+    return LimitRule()
+
+
+def log_policy_decision(result: SQLValidationResult) -> None:
+    logger.info(
+        "Generated SQL policy decision",
+        extra={
+            "valid": result.valid,
+            "statement_type": result.metadata.statement_type,
+            "finding_codes": [finding.code for finding in result.findings],
+            "rule_names": [finding.rule_name for finding in result.findings],
+            "referenced_tables": [
+                table.identifier
+                for table in result.metadata.referenced_tables
+                if table.source == "table"
+            ],
+            "referenced_columns": [
+                column.identifier
+                for column in result.metadata.referenced_columns
+                if column.table_identifier is not None
+            ],
+            "subquery_depth": result.metadata.subquery_depth,
+            "effective_limit": result.metadata.effective_limit,
+            "limit_was_added": result.metadata.limit_was_added,
+            "limit_was_reduced": result.metadata.limit_was_reduced,
+        },
+    )
 
 
 def classify_statement(statement: exp.Expression) -> SQLStatementType:
@@ -161,19 +470,45 @@ def classify_statement(statement: exp.Expression) -> SQLStatementType:
         return "update"
     if isinstance(statement, exp.Delete):
         return "delete"
-    if isinstance(statement, (exp.Create, exp.Drop)):
+    if isinstance(statement, (exp.Create, exp.Drop, exp.Alter, exp.TruncateTable)):
         return "ddl"
-    if isinstance(statement, exp.Command):
+    if isinstance(statement, (exp.Command, exp.Copy, exp.Grant)):
         return "command"
     return "unknown"
 
 
 def unsafe_node_names(statement: exp.Expression) -> tuple[str, ...]:
+    node_types = (
+        exp.Insert,
+        exp.Update,
+        exp.Delete,
+        exp.Merge,
+        exp.Create,
+        exp.Alter,
+        exp.Drop,
+        exp.TruncateTable,
+        exp.Copy,
+        exp.Grant,
+        exp.Command,
+        exp.Transaction,
+        exp.Commit,
+        exp.Rollback,
+    )
     names: set[str] = set()
-    for node_type in UNSAFE_NODE_TYPES:
+    for node_type in node_types:
         for node in statement.find_all(node_type):
             names.add(type(node).__name__)
     return tuple(sorted(names))
+
+
+def literal_limit_value(limit: exp.Expression) -> int | None:
+    expression = limit.args.get("expression")
+    if not isinstance(expression, exp.Literal) or expression.args.get("is_string"):
+        return None
+    try:
+        return int(str(expression.this))
+    except ValueError:
+        return None
 
 
 def extract_metadata(
@@ -257,7 +592,9 @@ def source_infos_for_scope(
                 table=table,
             )
         elif isinstance(source, Scope):
-            normalized_source_name = normalize_name(source_name)
+            normalized_source_name = (
+                source_name if source_name in cte_source_names else normalize_name(source_name)
+            )
             source_type: SQLReferenceSource = (
                 "cte" if normalized_source_name in cte_source_names else "subquery"
             )
@@ -279,7 +616,8 @@ def resolve_table(
     schema_name = schema_part(table)
     if not table_name:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "unknown_table",
                 "Generated SQL contains a table reference without a table name.",
             )
@@ -291,7 +629,8 @@ def resolve_table(
         resolved = catalog.get(identifier)
         if resolved is None:
             findings.append(
-                SQLValidationFinding(
+                finding(
+                    "SchemaReferenceRule",
                     "unknown_table",
                     f"Generated SQL references unknown table `{identifier}`.",
                 )
@@ -301,7 +640,8 @@ def resolve_table(
     matches = tuple(table for table in catalog.values() if table.name == table_name)
     if not matches:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "unknown_table",
                 f"Generated SQL references unknown table `{table_name}`.",
             )
@@ -309,7 +649,8 @@ def resolve_table(
         return None
     if len(matches) > 1:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "ambiguous_table",
                 f"Generated SQL references ambiguous table `{table_name}`.",
             )
@@ -329,7 +670,8 @@ def resolve_column(
 
     if not column_name:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "unknown_column",
                 "Generated SQL contains a column reference without a column name.",
             )
@@ -340,7 +682,8 @@ def resolve_column(
         source = source_infos.get(source_name)
         if source is None:
             findings.append(
-                SQLValidationFinding(
+                finding(
+                    "SchemaReferenceRule",
                     "unknown_column_source",
                     f"Generated SQL references unknown column source `{source_name}`.",
                 )
@@ -349,7 +692,8 @@ def resolve_column(
         if schema_name is not None and source.table is not None:
             if source.table.schema_name != schema_name:
                 findings.append(
-                    SQLValidationFinding(
+                    finding(
+                        "SchemaReferenceRule",
                         "unknown_column_source",
                         f"Generated SQL references unknown column source "
                         f"`{schema_name}.{source_name}`.",
@@ -363,7 +707,8 @@ def resolve_column(
     )
     if not matching_sources:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "unknown_column",
                 f"Generated SQL references unknown column `{column_name}`.",
             )
@@ -371,7 +716,8 @@ def resolve_column(
         return None
     if len(matching_sources) > 1:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "ambiguous_column",
                 f"Generated SQL references ambiguous column `{column_name}`.",
             )
@@ -387,7 +733,8 @@ def validate_column_in_source(
 ) -> ReferencedColumn | None:
     if column_name not in source.columns:
         findings.append(
-            SQLValidationFinding(
+            finding(
+                "SchemaReferenceRule",
                 "unknown_column",
                 f"Generated SQL references unknown column `{source.name}.{column_name}`.",
             )
@@ -455,6 +802,9 @@ def function_name(function: exp.Func) -> str:
 
 
 def cte_alias(cte: exp.CTE) -> str:
+    alias = cte.args.get("alias")
+    if isinstance(alias, exp.TableAlias):
+        return optional_identifier_part(alias.args.get("this")) or ""
     return normalize_name(cte.alias)
 
 

@@ -55,7 +55,10 @@ async def test_clear_question_produces_sql_draft_with_request_id() -> None:
     assert payload["result_type"] == "sql_draft"
     assert payload["request_id"] == "req-clear"
     assert payload["question"] == "Show gross revenue"
-    assert payload["sql"] == "SELECT sum(orders.total_cents) FROM commerce.orders AS orders;"
+    assert (
+        payload["sql"]
+        == "SELECT SUM(orders.total_cents) FROM commerce.orders AS orders LIMIT 1000"
+    )
     assert payload["metadata"]["model_confidence"] == 0.81
     assert payload["metadata"]["telemetry"]["provider_name"] == "fake"
 
@@ -84,7 +87,7 @@ async def test_clear_gross_revenue_by_order_month_produces_sql_draft() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["result_type"] == "sql_draft"
-    assert payload["sql"] == "SELECT 1 AS generated_sql_placeholder;"
+    assert payload["sql"] == "SELECT 1 AS generated_sql_placeholder LIMIT 1000"
 
 
 async def test_customer_electronics_question_produces_sql_draft() -> None:
