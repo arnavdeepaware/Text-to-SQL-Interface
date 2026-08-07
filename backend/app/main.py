@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import Engine
 
+from app.api.query import SQLGeneratorFactory, create_query_router
 from app.api.schema import SchemaCatalogFactory, create_schema_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.request_id import RequestIDMiddleware
 from app.db.engine import check_database_connection, create_database_engine
 from app.db.lifecycle import EngineFactory, database_lifespan, get_database_engine
 from app.services.schema_catalog import SchemaCatalogService
@@ -32,6 +34,7 @@ def create_app(
     engine_factory: EngineFactory = create_database_engine,
     database_check: DatabaseCheck = check_database_connection,
     schema_catalog_factory: SchemaCatalogFactory | None = None,
+    sql_generator_factory: SQLGeneratorFactory | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -42,11 +45,19 @@ def create_app(
             yield
 
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(
         create_schema_router(
             settings,
             schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
+        )
+    )
+    app.include_router(
+        create_query_router(
+            settings,
+            schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
+            sql_generator_factory=sql_generator_factory,
         )
     )
 

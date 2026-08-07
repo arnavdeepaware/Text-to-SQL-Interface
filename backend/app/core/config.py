@@ -49,9 +49,11 @@ class Settings(BaseSettings):
     prompt_context_budget_chars: int = Field(default=12_000, ge=500, le=100_000)
     prompt_max_few_shot_examples: int = Field(default=3, ge=0, le=8)
     sql_generation_model: str = "gpt-4.1-mini"
+    sql_generation_provider: Literal["openai", "fake"] = "openai"
     sql_generation_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
     sql_generation_max_retries: int = Field(default=1, ge=0, le=3)
     sql_generation_max_output_tokens: int = Field(default=1_000, ge=100, le=8_000)
+    query_max_question_chars: int = Field(default=1_000, ge=1, le=10_000)
     openai_api_key: SecretStr | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_timeout_seconds: float = Field(default=10.0, ge=0.5, le=60.0)

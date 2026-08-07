@@ -107,8 +107,18 @@ class OpenAISQLGenerator:
                     temperature=0,
                 )
                 result = SQLGenerationResult.model_validate_json(response.output_text)
+        except (
+            SQLGenerationCredentialsUnavailableError,
+            SQLGenerationMalformedOutputError,
+            SQLGenerationProviderTimeoutError,
+            SQLGenerationProviderUnavailableError,
+            SQLGenerationRateLimitError,
+        ):
+            raise
         except ValidationError as exc:
-            raise SQLGenerationMalformedOutputError("OpenAI structured output validation failed") from exc
+            raise SQLGenerationMalformedOutputError(
+                "OpenAI structured output validation failed"
+            ) from exc
         except json.JSONDecodeError as exc:
             raise SQLGenerationMalformedOutputError("OpenAI returned invalid JSON") from exc
         except Exception as exc:

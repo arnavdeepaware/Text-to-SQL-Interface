@@ -24,6 +24,8 @@
 - `backend/app/services/prompt_engine.py`: provider-neutral prompt construction using retrieved
   schema context, safe samples, glossary terms, relationship paths, and resource-backed few-shot
   examples.
+- `backend/app/api/query.py`: generation-only SQL draft endpoint with deterministic ambiguity
+  handling, request IDs, and stable public errors. SQL execution is out of scope.
 - `backend/app/repositories` and `backend/app/db`: schema metadata and database access.
 - `database/init`: reproducible local PostgreSQL setup.
 - `evals/cases`: curated fixtures; `evals/reports`: generated evaluation output.
