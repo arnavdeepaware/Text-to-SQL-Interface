@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.domain.sql_guardrails import SQLValidationFinding, SQLValidationMetadata
+
 
 @dataclass(frozen=True)
 class QueryResultColumn:
@@ -46,3 +48,5 @@ class QueryExecutionResult:
     execution_duration_ms: int
     truncated: bool
     plan: QueryPlanSummary
+    guardrail_findings: tuple[SQLValidationFinding, ...] = ()
+    guardrail_metadata: SQLValidationMetadata | None = None

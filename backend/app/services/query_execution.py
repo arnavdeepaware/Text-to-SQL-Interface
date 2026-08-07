@@ -105,6 +105,8 @@ class QueryExecutionService:
                         execution_duration_ms=elapsed_ms(started),
                         truncated=truncated,
                         plan=plan.summary,
+                        guardrail_findings=validation.findings,
+                        guardrail_metadata=validation.metadata,
                     )
                     log_execution_decision("executed", validation, result.plan, result)
                     return result
