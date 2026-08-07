@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from app.core.config import Settings
 from app.domain.glossary import BusinessGlossary, GlossaryTerm
 from app.domain.prompt import SQLGenerationPrompt
+from app.domain.query_execution import QueryExecutionResult, QueryPlanSummary, QueryResultColumn
 from app.domain.schema import (
     ColumnSchema,
     DatabaseSchema,
@@ -21,6 +22,7 @@ from app.domain.schema_catalog import ColumnSample, SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
 from app.main import create_app
 from app.providers.fake_sql_generation import FakeSQLGenerator
+from app.services.query_execution import QueryPlanThresholdExceededError
 
 
 class FakeSchemaCatalogService:
@@ -264,6 +266,88 @@ async def test_generated_sql_with_invented_column_returns_stable_public_error() 
     assert response.json()["error"]["request_id"] == "req-invented-column"
 
 
+async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1;",
+        explanation="Returns one order.",
+        model_confidence=0.9,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+    executor = FakeQueryExecutor(
+        QueryExecutionResult(
+            columns=(QueryResultColumn("order_id", "20"),),
+            rows=({"order_id": 1},),
+            row_count=1,
+            execution_duration_ms=4,
+            truncated=False,
+            plan=QueryPlanSummary(
+                estimated_rows=1,
+                total_cost=1.2,
+                plan_nodes=("Limit", "Seq Scan"),
+                referenced_relations=("commerce.orders",),
+            ),
+        )
+    )
+
+    response = await post_query(
+        "Show one order",
+        generator=FakeSQLGenerator(result=result),
+        executor=executor,
+        request_id="req-run",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result_type"] == "query_result"
+    assert payload["request_id"] == "req-run"
+    assert payload["columns"] == [{"name": "order_id", "type_code": "20"}]
+    assert payload["rows"] == [{"order_id": 1}]
+    assert payload["row_count"] == 1
+    assert payload["execution_duration_ms"] == 4
+    assert payload["truncated"] is False
+    assert payload["plan"] == {
+        "estimated_rows": 1,
+        "total_cost": 1.2,
+        "plan_nodes": ["Limit", "Seq Scan"],
+        "referenced_relations": ["commerce.orders"],
+    }
+    assert "raw_plan" not in payload
+    assert executor.sql == "SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1"
+
+
+async def test_query_endpoint_maps_expensive_plan_to_stable_public_error() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders;",
+        explanation="Would be expensive.",
+        model_confidence=0.6,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+
+    response = await post_query(
+        "Show all orders",
+        generator=FakeSQLGenerator(result=result),
+        executor=FailingQueryExecutor(QueryPlanThresholdExceededError("too expensive")),
+        request_id="req-expensive",
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "sql_guardrail_plan_too_expensive",
+            "message": "Generated SQL exceeded planning safety limits.",
+            "request_id": "req-expensive",
+        }
+    }
+
+
 async def test_query_draft_logs_request_id(monkeypatch: MonkeyPatch) -> None:
     logger = Mock()
     monkeypatch.setattr("app.api.query.logger", logger)
@@ -303,6 +387,35 @@ async def post_draft(
             )
 
 
+async def post_query(
+    question: str,
+    generator: FakeSQLGenerator | CountingGenerator | None = None,
+    executor: FakeQueryExecutor | FailingQueryExecutor | None = None,
+    settings: Settings | None = None,
+    request_id: str = "req-test",
+) -> Response:
+    fake_engine = Mock(spec=Engine)
+    fake_service = FakeSchemaCatalogService()
+    sql_generator = generator or FakeSQLGenerator()
+    query_executor = executor or FakeQueryExecutor(empty_execution_result())
+    app = create_app(
+        settings=settings or Settings(environment="test"),
+        engine_factory=lambda settings: cast(Engine, fake_engine),
+        schema_catalog_factory=lambda engine, settings: fake_service,
+        sql_generator_factory=lambda settings: sql_generator,
+        query_executor_factory=lambda engine, settings: query_executor,
+    )
+    transport = ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/v1/query",
+                json={"question": question},
+                headers={"X-Request-ID": request_id},
+            )
+
+
 class CountingGenerator:
     def __init__(self) -> None:
         self.calls = 0
@@ -310,6 +423,42 @@ class CountingGenerator:
     def generate(self, prompt: SQLGenerationPrompt) -> SQLGenerationDraft:
         self.calls += 1
         return FakeSQLGenerator().generate(prompt)  # pragma: no cover
+
+
+class FakeQueryExecutor:
+    def __init__(self, result: QueryExecutionResult) -> None:
+        self._result = result
+        self.sql: str | None = None
+        self.catalog: SchemaCatalog | None = None
+
+    def execute(self, sql: str, catalog: SchemaCatalog) -> QueryExecutionResult:
+        self.sql = sql
+        self.catalog = catalog
+        return self._result
+
+
+class FailingQueryExecutor:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def execute(self, sql: str, catalog: SchemaCatalog) -> QueryExecutionResult:
+        raise self._error
+
+
+def empty_execution_result() -> QueryExecutionResult:
+    return QueryExecutionResult(
+        columns=(),
+        rows=(),
+        row_count=0,
+        execution_duration_ms=0,
+        truncated=False,
+        plan=QueryPlanSummary(
+            estimated_rows=0,
+            total_cost=0.0,
+            plan_nodes=(),
+            referenced_relations=(),
+        ),
+    )
 
 
 def fake_catalog() -> SchemaCatalog:

@@ -28,6 +28,11 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_user == "text_to_sql_reader"
     assert settings.sql_guardrail_max_subquery_depth == 3
     assert settings.sql_guardrail_max_returned_rows == 1000
+    assert settings.sql_guardrail_explain_timeout_ms == 1000
+    assert settings.sql_guardrail_max_plan_rows == 50000
+    assert settings.sql_guardrail_max_plan_total_cost == 100000.0
+    assert settings.sql_execution_max_rows == 1000
+    assert settings.sql_execution_lock_timeout_ms == 500
 
 
 def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:

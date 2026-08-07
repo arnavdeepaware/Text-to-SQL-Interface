@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import Engine
 
-from app.api.query import SQLGeneratorFactory, create_query_router
+from app.api.query import QueryExecutorFactory, SQLGeneratorFactory, create_query_router
 from app.api.schema import SchemaCatalogFactory, create_schema_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
@@ -14,6 +14,7 @@ from app.core.logging import configure_logging
 from app.core.request_id import RequestIDMiddleware
 from app.db.engine import check_database_connection, create_database_engine
 from app.db.lifecycle import EngineFactory, database_lifespan, get_database_engine
+from app.services.query_execution import QueryExecutionService
 from app.services.schema_catalog import SchemaCatalogService
 
 DatabaseCheck = Callable[[Engine], bool]
@@ -35,6 +36,7 @@ def create_app(
     database_check: DatabaseCheck = check_database_connection,
     schema_catalog_factory: SchemaCatalogFactory | None = None,
     sql_generator_factory: SQLGeneratorFactory | None = None,
+    query_executor_factory: QueryExecutorFactory | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -58,6 +60,7 @@ def create_app(
             settings,
             schema_catalog_factory=schema_catalog_factory or SchemaCatalogService,
             sql_generator_factory=sql_generator_factory,
+            query_executor_factory=query_executor_factory or QueryExecutionService,
         )
     )
 
