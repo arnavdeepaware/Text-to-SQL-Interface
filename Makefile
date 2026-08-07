@@ -1,6 +1,6 @@
 .PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration compose-check db-up db-down db-reset db-smoke check
 
-UV ?= python3 -m uv
+UV ?= $(shell command -v uv >/dev/null 2>&1 && printf uv || printf 'python3 -m uv')
 
 backend-install:
 	$(UV) --directory backend sync --all-groups
