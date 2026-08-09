@@ -14,6 +14,10 @@ from app.services.confidence_signals import (
     DeterministicValidationRequest,
     DeterministicValidationService,
 )
+from app.services.multi_query_agreement import (
+    MultiQueryAgreementRequest,
+    MultiQueryAgreementService,
+)
 from app.services.query_draft import (
     ClarificationRequired,
     QueryDraftResult,
@@ -21,6 +25,7 @@ from app.services.query_draft import (
     normalize_question,
 )
 from app.services.query_execution import QueryExecutionError, QueryPlanInspectionError
+from app.services.semantic_alignment import SemanticAlignmentRequest, SemanticAlignmentService
 from app.services.sql_guardrails import SQLGuardrailValidationError
 
 logger = logging.getLogger(__name__)
@@ -40,6 +45,14 @@ class QueryDraftProvider(Protocol):
 
 class DeterministicValidator(Protocol):
     def validate(self, request: DeterministicValidationRequest) -> tuple[ValidationSignal, ...]: ...
+
+
+class SemanticValidator(Protocol):
+    def validate(self, request: SemanticAlignmentRequest) -> tuple[ValidationSignal, ...]: ...
+
+
+class MultiQueryValidator(Protocol):
+    def evaluate(self, request: MultiQueryAgreementRequest) -> tuple[ValidationSignal, ...]: ...
 
 
 class QueryWorkflowError(RuntimeError):
@@ -82,6 +95,8 @@ class QueryWorkflowService:
         request_id: str,
         draft_service: QueryDraftProvider | None = None,
         deterministic_validator: DeterministicValidator | None = None,
+        semantic_validator: SemanticValidator | None = None,
+        multi_query_validator: MultiQueryValidator | None = None,
     ) -> None:
         self._settings = settings
         self._catalog_provider = catalog_provider
@@ -92,6 +107,8 @@ class QueryWorkflowService:
         self._deterministic_validator = deterministic_validator or DeterministicValidationService(
             settings
         )
+        self._semantic_validator = semantic_validator
+        self._multi_query_validator = multi_query_validator
 
     def run(self, question: str, refresh_schema: bool = False) -> QueryWorkflowResult:
         log_audit("started", self._request_id)
@@ -137,15 +154,52 @@ class QueryWorkflowService:
             log_audit("blocked_or_failed_execution", self._request_id)
             raise
 
-        validation_signals = self._deterministic_validator.validate(
-            DeterministicValidationRequest(
-                question=normalized_question,
-                catalog=catalog,
-                draft=draft_result.draft,
-                execution=execution,
-                retrieval=draft_result.retrieval,
+        validation_signals = list(
+            self._deterministic_validator.validate(
+                DeterministicValidationRequest(
+                    question=normalized_question,
+                    catalog=catalog,
+                    draft=draft_result.draft,
+                    execution=execution,
+                    retrieval=draft_result.retrieval,
+                )
             )
         )
+        semantic_validator = self._semantic_validator
+        if semantic_validator is None and self._settings.confidence_semantic_enabled:
+            semantic_validator = SemanticAlignmentService(self._settings)
+        if semantic_validator is not None:
+            validation_signals.extend(
+                semantic_validator.validate(
+                    SemanticAlignmentRequest(
+                        question=normalized_question,
+                        execution=execution,
+                    )
+                )
+            )
+
+        multi_query_validator = self._multi_query_validator
+        if multi_query_validator is None and self._settings.confidence_multi_query_enabled:
+            multi_query_validator = MultiQueryAgreementService(
+                self._settings,
+                self._sql_generator,
+                self._query_executor,
+            )
+        if multi_query_validator is not None:
+            validation_signals.extend(
+                multi_query_validator.evaluate(
+                    MultiQueryAgreementRequest(
+                        question=normalized_question,
+                        catalog=catalog,
+                        retrieval=draft_result.retrieval,
+                        primary_draft=draft_result.draft,
+                        primary_execution=execution,
+                        validation_signals=tuple(validation_signals),
+                    )
+                )
+            )
+
+        validation_signals_tuple = tuple(validation_signals)
         log_audit(
             "executed",
             self._request_id,
@@ -153,13 +207,13 @@ class QueryWorkflowService:
             truncated=execution.truncated,
             plan_estimated_rows=execution.plan.estimated_rows,
             plan_total_cost=execution.plan.total_cost,
-            validation_signal_codes=[signal.code for signal in validation_signals],
+            validation_signal_codes=[signal.code for signal in validation_signals_tuple],
         )
         return QueryWorkflowResult(
             question=normalized_question,
             draft=draft_result.draft,
             execution=execution,
-            validation_signals=validation_signals,
+            validation_signals=validation_signals_tuple,
         )
 
 

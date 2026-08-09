@@ -152,7 +152,12 @@ class ValidationSignalResponse(BaseModel):
 
 
 class HallucinationConfidenceResponse(BaseModel):
-    status: Literal["deterministic_only", "not_applicable"]
+    status: Literal[
+        "deterministic_only",
+        "semantic_validated",
+        "multi_query_validated",
+        "not_applicable",
+    ]
     score: None = None
     signals: list[ValidationSignalResponse]
 
@@ -502,11 +507,20 @@ def query_execution_response(
 
 def hallucination_confidence_status(
     validation_signals: tuple[ValidationSignal, ...],
-) -> Literal["deterministic_only", "not_applicable"]:
+) -> Literal[
+    "deterministic_only",
+    "semantic_validated",
+    "multi_query_validated",
+    "not_applicable",
+]:
     if validation_signals and all(
         signal.status == "not_applicable" for signal in validation_signals
     ):
         return "not_applicable"
+    if any(signal.code.startswith("multi_query_") for signal in validation_signals):
+        return "multi_query_validated"
+    if any(signal.code.startswith("semantic_alignment_") for signal in validation_signals):
+        return "semantic_validated"
     return "deterministic_only"
 
 

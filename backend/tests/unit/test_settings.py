@@ -39,6 +39,14 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.result_sanity_max_percentage == 100.0
     assert settings.result_sanity_min_date == "2020-01-01"
     assert settings.result_sanity_max_date == "2030-12-31"
+    assert settings.confidence_semantic_enabled is False
+    assert settings.confidence_alignment_provider == "openai"
+    assert settings.confidence_alignment_timeout_seconds == 3.0
+    assert settings.confidence_alignment_max_retries == 0
+    assert settings.confidence_multi_query_enabled is False
+    assert settings.confidence_multi_query_max_alternates == 1
+    assert settings.confidence_multi_query_max_result_rows == 100
+    assert settings.confidence_multi_query_decimal_abs_tol == 0.000001
 
 
 def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:

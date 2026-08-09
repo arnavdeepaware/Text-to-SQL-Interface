@@ -99,6 +99,7 @@ class QueryExecutionService:
                     truncated = len(rows) > self._settings.sql_execution_max_rows
                     returned_rows = rows[: self._settings.sql_execution_max_rows]
                     result = QueryExecutionResult(
+                        executed_sql=validation.sql,
                         columns=columns,
                         rows=tuple(returned_rows),
                         row_count=len(returned_rows),

@@ -280,6 +280,7 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
     )
     executor = FakeQueryExecutor(
         QueryExecutionResult(
+            executed_sql="SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1",
             columns=(QueryResultColumn("order_id", "20"),),
             rows=({"order_id": 1},),
             row_count=1,
@@ -687,6 +688,7 @@ def sql_result(sql: str) -> SQLGenerationResult:
 
 def empty_execution_result() -> QueryExecutionResult:
     return QueryExecutionResult(
+        executed_sql="SELECT 1 AS generated_sql_placeholder LIMIT 1000",
         columns=(),
         rows=(),
         row_count=0,

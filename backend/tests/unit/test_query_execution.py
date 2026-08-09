@@ -108,6 +108,7 @@ def test_execute_runs_explain_then_query_and_rolls_back() -> None:
 
     result = service.execute("SELECT order_id FROM commerce.orders", fake_catalog())
 
+    assert result.executed_sql == "SELECT order_id FROM commerce.orders LIMIT 1000"
     assert result.row_count == 1
     assert result.rows == ({"order_id": 1},)
     assert result.truncated is True

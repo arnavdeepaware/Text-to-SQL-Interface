@@ -190,6 +190,7 @@ def validate(
     columns: tuple[QueryResultColumn, ...] = (QueryResultColumn("gross_revenue"),),
 ) -> tuple[ValidationSignal, ...]:
     execution = QueryExecutionResult(
+        executed_sql=(draft or globals()["draft"]()).result.sql or "",
         columns=columns,
         rows=rows,
         row_count=len(rows),

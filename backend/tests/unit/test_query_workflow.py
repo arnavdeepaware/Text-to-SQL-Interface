@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 from app.core.config import Settings
+from app.domain.confidence import ValidationSignal
 from app.domain.glossary import BusinessGlossary
 from app.domain.query_execution import QueryExecutionResult, QueryPlanSummary
 from app.domain.schema import ColumnSchema, DatabaseSchema, PrimaryKeySchema, TableSchema
@@ -167,11 +169,43 @@ def test_workflow_logs_request_correlated_audit(monkeypatch: MonkeyPatch) -> Non
     assert logger.info.call_args_list[-1].kwargs["extra"]["event"] == "executed"
 
 
+def test_workflow_appends_semantic_and_multi_query_signals() -> None:
+    semantic_signal = ValidationSignal(
+        "semantic_alignment_uncertain",
+        "warning",
+        0.5,
+        "Semantic alignment was uncertain.",
+    )
+    multi_signal = ValidationSignal(
+        "multi_query_result_agreement",
+        "passed",
+        1.0,
+        "Independent SQL agreed.",
+    )
+    semantic_validator = StaticSemanticValidator((semantic_signal,))
+    multi_validator = StaticMultiValidator((multi_signal,))
+    workflow = workflow_service(
+        draft_service=FakeDraftService(QueryDraftResult(draft=fake_draft())),
+        semantic_validator=semantic_validator,
+        multi_query_validator=multi_validator,
+    )
+
+    result = workflow.run("Show all orders")
+
+    assert semantic_validator.calls == 1
+    assert multi_validator.calls == 1
+    assert semantic_signal in result.validation_signals
+    assert multi_signal in result.validation_signals
+    assert "semantic_alignment_uncertain" in multi_validator.signal_codes_seen
+
+
 def workflow_service(
     draft_service: FakeDraftService | FailingDraftService | None = None,
     executor: FakeExecutor | FailingExecutor | None = None,
     catalog_provider: FakeCatalogProvider | None = None,
     request_id: str = "req-test",
+    semantic_validator: StaticSemanticValidator | None = None,
+    multi_query_validator: StaticMultiValidator | None = None,
 ) -> QueryWorkflowService:
     return QueryWorkflowService(
         settings=Settings(environment="test"),
@@ -181,6 +215,8 @@ def workflow_service(
         request_id=request_id,
         draft_service=draft_service
         or FakeDraftService(QueryDraftResult(draft=fake_draft())),
+        semantic_validator=semantic_validator,
+        multi_query_validator=multi_query_validator,
     )
 
 
@@ -227,6 +263,28 @@ class FailingExecutor:
         raise self.error
 
 
+@dataclass
+class StaticSemanticValidator:
+    signals: tuple[ValidationSignal, ...]
+    calls: int = 0
+
+    def validate(self, request: Any) -> tuple[ValidationSignal, ...]:
+        self.calls += 1
+        return self.signals
+
+
+@dataclass
+class StaticMultiValidator:
+    signals: tuple[ValidationSignal, ...]
+    calls: int = 0
+    signal_codes_seen: tuple[str, ...] = ()
+
+    def evaluate(self, request: Any) -> tuple[ValidationSignal, ...]:
+        self.calls += 1
+        self.signal_codes_seen = tuple(signal.code for signal in request.validation_signals)
+        return self.signals
+
+
 def fake_draft(sql: str = "SELECT order_id FROM commerce.orders") -> SQLGenerationDraft:
     return SQLGenerationDraft(
         result=SQLGenerationResult(
@@ -249,6 +307,7 @@ def fake_draft(sql: str = "SELECT order_id FROM commerce.orders") -> SQLGenerati
 
 def fake_execution() -> QueryExecutionResult:
     return QueryExecutionResult(
+        executed_sql="SELECT order_id FROM commerce.orders LIMIT 1000",
         columns=(),
         rows=(),
         row_count=0,

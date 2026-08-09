@@ -66,6 +66,24 @@ class Settings(BaseSettings):
     result_sanity_max_percentage: float = Field(default=100.0)
     result_sanity_min_date: str = "2020-01-01"
     result_sanity_max_date: str = "2030-12-31"
+    confidence_semantic_enabled: bool = False
+    confidence_alignment_provider: Literal["openai", "fake"] = "openai"
+    confidence_alignment_model: str = "gpt-4.1-mini"
+    confidence_alignment_timeout_seconds: float = Field(default=3.0, ge=0.1, le=30.0)
+    confidence_alignment_max_retries: int = Field(default=0, ge=0, le=2)
+    confidence_alignment_max_output_tokens: int = Field(default=300, ge=50, le=2_000)
+    confidence_alignment_pass_threshold: float = Field(default=0.82, ge=0.0, le=1.0)
+    confidence_alignment_fail_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
+    confidence_alignment_lexical_score_cap: float = Field(default=0.65, ge=0.0, le=1.0)
+    confidence_multi_query_enabled: bool = False
+    confidence_multi_query_timeout_seconds: float = Field(default=10.0, ge=0.1, le=60.0)
+    confidence_multi_query_max_retries: int = Field(default=0, ge=0, le=2)
+    confidence_multi_query_max_alternates: int = Field(default=1, ge=0, le=1)
+    confidence_multi_query_max_result_rows: int = Field(default=100, ge=1, le=10_000)
+    confidence_multi_query_max_execution_ms: int = Field(default=5_000, ge=100, le=60_000)
+    confidence_multi_query_decimal_abs_tol: float = Field(default=0.000001, ge=0.0, le=1.0)
+    confidence_multi_query_float_rel_tol: float = Field(default=1e-6, ge=0.0, le=1.0)
+    confidence_multi_query_float_abs_tol: float = Field(default=1e-9, ge=0.0, le=1.0)
     query_max_question_chars: int = Field(default=1_000, ge=1, le=10_000)
     openai_api_key: SecretStr | None = None
     openai_embedding_model: str = "text-embedding-3-small"
