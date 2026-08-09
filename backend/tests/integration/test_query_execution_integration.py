@@ -63,8 +63,16 @@ async def test_query_endpoint_executes_safe_approved_sql_against_postgres() -> N
     assert payload["guardrails"]["statement_type"] == "select"
     assert payload["guardrails"]["effective_limit"] == 2
     assert payload["guardrails"]["findings"] == []
-    assert payload["hallucination_confidence"]["status"] == "deterministic_only"
-    assert payload["hallucination_confidence"]["score"] is None
+    assert payload["hallucination_confidence"]["status"] in {"passed", "unavailable"}
+    assert payload["hallucination_confidence"]["score"] is not None
+    assert payload["hallucination_confidence"]["confidence_band"] in {
+        "high",
+        "medium",
+        "low",
+        "blocked",
+    }
+    assert payload["hallucination_confidence"]["signal_breakdown"]
+    assert payload["hallucination_confidence"]["rationale"]
     assert {
         signal["code"] for signal in payload["hallucination_confidence"]["signals"]
     } >= {

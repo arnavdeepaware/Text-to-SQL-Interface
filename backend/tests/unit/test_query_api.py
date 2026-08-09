@@ -347,8 +347,16 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
         "subquery_depth": 0,
         "findings": [],
     }
-    assert payload["hallucination_confidence"]["status"] == "deterministic_only"
-    assert payload["hallucination_confidence"]["score"] is None
+    assert payload["hallucination_confidence"]["status"] in {"passed", "unavailable"}
+    assert payload["hallucination_confidence"]["score"] is not None
+    assert payload["hallucination_confidence"]["confidence_band"] in {
+        "high",
+        "medium",
+        "low",
+        "blocked",
+    }
+    assert payload["hallucination_confidence"]["signal_breakdown"]
+    assert payload["hallucination_confidence"]["rationale"]
     assert {
         signal["code"] for signal in payload["hallucination_confidence"]["signals"]
     } >= {
@@ -382,6 +390,10 @@ async def test_query_endpoint_marks_confidence_not_applicable_when_disabled() ->
     assert response.status_code == 200
     confidence = response.json()["hallucination_confidence"]
     assert confidence["status"] == "not_applicable"
+    assert confidence["score"] is None
+    assert confidence["confidence_band"] == "not_applicable"
+    assert confidence["signal_breakdown"] == []
+    assert confidence["rationale"]
     assert confidence["signals"] == [
         {
             "code": "deterministic_validation_disabled",

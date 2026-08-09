@@ -47,6 +47,17 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.confidence_multi_query_max_alternates == 1
     assert settings.confidence_multi_query_max_result_rows == 100
     assert settings.confidence_multi_query_decimal_abs_tol == 0.000001
+    assert settings.confidence_weight_sql_syntax == 0.10
+    assert settings.confidence_weight_guardrail_approval == 0.15
+    assert settings.confidence_weight_schema_coverage == 0.20
+    assert settings.confidence_weight_result_sanity == 0.20
+    assert settings.confidence_weight_semantic_alignment == 0.15
+    assert settings.confidence_weight_multi_query_agreement == 0.18
+    assert settings.confidence_weight_model_reported == 0.02
+    assert settings.confidence_high_threshold == 0.85
+    assert settings.confidence_medium_threshold == 0.70
+    assert settings.confidence_low_threshold == 0.50
+    assert settings.confidence_blocked_threshold == 0.35
 
 
 def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:

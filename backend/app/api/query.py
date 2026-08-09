@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.core.exceptions import PublicAPIError
 from app.core.request_id import request_id
 from app.db.lifecycle import get_database_engine
-from app.domain.confidence import ValidationSignal
+from app.domain.confidence import ConfidenceComponent, ConfidenceSummary, ValidationSignal
 from app.domain.query_execution import QueryExecutionResult
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
@@ -151,14 +151,35 @@ class ValidationSignalResponse(BaseModel):
     evidence: dict[str, Any]
 
 
+class ConfidenceComponentResponse(BaseModel):
+    name: str
+    status: str
+    score: float
+    weight: float
+    contribution: float
+    explanation: str
+    signal_codes: list[str]
+    evidence: dict[str, Any]
+
+
 class HallucinationConfidenceResponse(BaseModel):
     status: Literal[
-        "deterministic_only",
-        "semantic_validated",
-        "multi_query_validated",
+        "passed",
+        "failed",
+        "unavailable",
         "not_applicable",
     ]
-    score: None = None
+    score: float | None
+    confidence_band: Literal[
+        "high",
+        "medium",
+        "low",
+        "blocked",
+        "not_applicable",
+    ]
+    signal_breakdown: list[ConfidenceComponentResponse]
+    warnings: list[str]
+    rationale: str
     signals: list[ValidationSignalResponse]
 
 
@@ -317,7 +338,7 @@ def create_query_router(
             result.question,
             result.draft,
             result.execution,
-            result.validation_signals,
+            result.confidence,
         )
 
     return router
@@ -468,9 +489,10 @@ def query_execution_response(
     question: str,
     draft: SQLGenerationDraft,
     execution: QueryExecutionResult,
-    validation_signals: tuple[ValidationSignal, ...] = (),
+    confidence: ConfidenceSummary | None,
 ) -> QueryExecutionResponse:
     draft_response = sql_draft_response(current_request_id, question, draft)
+    confidence = confidence or fallback_confidence_summary()
     return QueryExecutionResponse(
         result_type="query_result",
         request_id=current_request_id,
@@ -497,31 +519,48 @@ def query_execution_response(
             referenced_relations=list(execution.plan.referenced_relations),
         ),
         guardrails=guardrail_metadata_response(execution),
-        hallucination_confidence=HallucinationConfidenceResponse(
-            status=hallucination_confidence_status(validation_signals),
-            signals=[validation_signal_response(signal) for signal in validation_signals],
-        ),
+        hallucination_confidence=confidence_response(confidence),
         metadata=draft_response.metadata,
     )
 
 
-def hallucination_confidence_status(
-    validation_signals: tuple[ValidationSignal, ...],
-) -> Literal[
-    "deterministic_only",
-    "semantic_validated",
-    "multi_query_validated",
-    "not_applicable",
-]:
-    if validation_signals and all(
-        signal.status == "not_applicable" for signal in validation_signals
-    ):
-        return "not_applicable"
-    if any(signal.code.startswith("multi_query_") for signal in validation_signals):
-        return "multi_query_validated"
-    if any(signal.code.startswith("semantic_alignment_") for signal in validation_signals):
-        return "semantic_validated"
-    return "deterministic_only"
+def confidence_response(confidence: ConfidenceSummary) -> HallucinationConfidenceResponse:
+    return HallucinationConfidenceResponse(
+        status=confidence.status,
+        score=confidence.score,
+        confidence_band=confidence.confidence_band,
+        signal_breakdown=[
+            confidence_component_response(component) for component in confidence.components
+        ],
+        warnings=list(confidence.warnings),
+        rationale=confidence.rationale,
+        signals=[validation_signal_response(signal) for signal in confidence.signals],
+    )
+
+
+def confidence_component_response(
+    component: ConfidenceComponent,
+) -> ConfidenceComponentResponse:
+    return ConfidenceComponentResponse(
+        name=component.name,
+        status=component.status,
+        score=component.score,
+        weight=component.weight,
+        contribution=component.contribution,
+        explanation=component.explanation,
+        signal_codes=list(component.signal_codes),
+        evidence=component.evidence,
+    )
+
+
+def fallback_confidence_summary() -> ConfidenceSummary:
+    return ConfidenceSummary(
+        status="unavailable",
+        score=None,
+        confidence_band="not_applicable",
+        rationale="Confidence scoring did not run.",
+        warnings=("Confidence scoring did not run.",),
+    )
 
 
 def guardrail_metadata_response(execution: QueryExecutionResult) -> GuardrailMetadataResponse:

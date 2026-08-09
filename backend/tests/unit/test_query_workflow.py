@@ -47,6 +47,8 @@ def test_workflow_executes_normal_question() -> None:
     assert result.question == "Show all orders"
     assert result.draft == draft
     assert result.execution == executor.result
+    assert result.confidence is not None
+    assert result.confidence.score is not None
     assert executor.calls == 1
 
 
@@ -196,6 +198,8 @@ def test_workflow_appends_semantic_and_multi_query_signals() -> None:
     assert multi_validator.calls == 1
     assert semantic_signal in result.validation_signals
     assert multi_signal in result.validation_signals
+    assert result.confidence is not None
+    assert result.confidence.score is not None
     assert "semantic_alignment_uncertain" in multi_validator.signal_codes_seen
 
 

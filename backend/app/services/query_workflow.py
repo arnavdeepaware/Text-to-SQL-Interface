@@ -5,11 +5,15 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.core.config import Settings
-from app.domain.confidence import ValidationSignal
+from app.domain.confidence import ConfidenceSummary, ValidationSignal
 from app.domain.query_execution import QueryExecutionResult
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft
 from app.providers.sql_generation import SQLGenerationError, SQLGenerator
+from app.services.confidence_aggregation import (
+    ConfidenceScoringRequest,
+    ConfidenceScoringService,
+)
 from app.services.confidence_signals import (
     DeterministicValidationRequest,
     DeterministicValidationService,
@@ -55,6 +59,10 @@ class MultiQueryValidator(Protocol):
     def evaluate(self, request: MultiQueryAgreementRequest) -> tuple[ValidationSignal, ...]: ...
 
 
+class ConfidenceScorer(Protocol):
+    def score(self, request: ConfidenceScoringRequest) -> ConfidenceSummary: ...
+
+
 class QueryWorkflowError(RuntimeError):
     """Stable public-safe error for unexpected workflow state."""
 
@@ -81,6 +89,7 @@ class QueryWorkflowResult:
     execution: QueryExecutionResult | None = None
     clarification: ClarificationRequired | None = None
     validation_signals: tuple[ValidationSignal, ...] = ()
+    confidence: ConfidenceSummary | None = None
 
 
 class QueryWorkflowService:
@@ -97,6 +106,7 @@ class QueryWorkflowService:
         deterministic_validator: DeterministicValidator | None = None,
         semantic_validator: SemanticValidator | None = None,
         multi_query_validator: MultiQueryValidator | None = None,
+        confidence_scorer: ConfidenceScorer | None = None,
     ) -> None:
         self._settings = settings
         self._catalog_provider = catalog_provider
@@ -109,6 +119,7 @@ class QueryWorkflowService:
         )
         self._semantic_validator = semantic_validator
         self._multi_query_validator = multi_query_validator
+        self._confidence_scorer = confidence_scorer or ConfidenceScoringService(settings)
 
     def run(self, question: str, refresh_schema: bool = False) -> QueryWorkflowResult:
         log_audit("started", self._request_id)
@@ -200,6 +211,14 @@ class QueryWorkflowService:
             )
 
         validation_signals_tuple = tuple(validation_signals)
+        confidence = self._confidence_scorer.score(
+            ConfidenceScoringRequest(
+                validation_signals=validation_signals_tuple,
+                model_confidence=draft_result.draft.result.model_confidence,
+                sql_executed=True,
+                guardrail_approved=True,
+            )
+        )
         log_audit(
             "executed",
             self._request_id,
@@ -208,12 +227,16 @@ class QueryWorkflowService:
             plan_estimated_rows=execution.plan.estimated_rows,
             plan_total_cost=execution.plan.total_cost,
             validation_signal_codes=[signal.code for signal in validation_signals_tuple],
+            confidence_status=confidence.status,
+            confidence_band=confidence.confidence_band,
+            confidence_score=confidence.score,
         )
         return QueryWorkflowResult(
             question=normalized_question,
             draft=draft_result.draft,
             execution=execution,
             validation_signals=validation_signals_tuple,
+            confidence=confidence,
         )
 
 
