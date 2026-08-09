@@ -20,7 +20,7 @@ from app.domain.schema import (
 )
 from app.domain.schema_catalog import ColumnSample, SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
-from app.domain.sql_guardrails import SQLValidationMetadata
+from app.domain.sql_guardrails import ReferencedColumn, ReferencedTable, SQLValidationMetadata
 from app.main import create_app
 from app.providers.fake_sql_generation import FakeSQLGenerator
 from app.services.query_execution import QueryPlanThresholdExceededError
@@ -291,10 +291,20 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
                 plan_nodes=("Limit", "Seq Scan"),
                 referenced_relations=("commerce.orders",),
             ),
-            guardrail_metadata=SQLValidationMetadata(
-                statement_type="select",
-                effective_limit=1,
-                limit_was_added=False,
+                guardrail_metadata=SQLValidationMetadata(
+                    statement_type="select",
+                    referenced_tables=(
+                        ReferencedTable(schema_name="commerce", name="orders", alias="orders"),
+                    ),
+                    referenced_columns=(
+                        ReferencedColumn(
+                            name="order_id",
+                            source_name="orders",
+                            table_identifier="commerce.orders",
+                        ),
+                    ),
+                    effective_limit=1,
+                    limit_was_added=False,
                 limit_was_reduced=False,
                 subquery_depth=0,
             ),
@@ -336,9 +346,13 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
         "subquery_depth": 0,
         "findings": [],
     }
-    assert payload["hallucination_confidence"] == {
-        "status": "not_evaluated",
-        "score": None,
+    assert payload["hallucination_confidence"]["status"] == "deterministic_only"
+    assert payload["hallucination_confidence"]["score"] is None
+    assert {
+        signal["code"] for signal in payload["hallucination_confidence"]["signals"]
+    } >= {
+        "schema_coverage_passed",
+        "generated_metadata_matches_ast",
     }
     assert "raw_plan" not in payload
     assert executor.sql == "SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1"

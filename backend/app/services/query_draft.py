@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from app.core.config import Settings
 from app.domain.glossary import BusinessGlossary
 from app.domain.schema_catalog import SchemaCatalog
+from app.domain.schema_retrieval import SchemaRetrievalResult
 from app.domain.sql_generation import SQLGenerationDraft
 from app.providers.sql_generation import SQLGenerator
 from app.services.prompt_engine import SchemaAwarePromptEngine
@@ -35,6 +36,7 @@ class QueryDraftResult:
 
     draft: SQLGenerationDraft | None = None
     clarification: ClarificationRequired | None = None
+    retrieval: SchemaRetrievalResult | None = None
 
     @property
     def clarification_required(self) -> bool:
@@ -71,16 +73,20 @@ class QueryDraftService:
             catalog.glossary,
         )
         if ambiguity is not None:
-            return QueryDraftResult(clarification=ambiguity)
+            return QueryDraftResult(clarification=ambiguity, retrieval=retrieval)
 
         if not retrieval.selected_tables:
-            return QueryDraftResult(clarification=unanswerable_clarification())
+            return QueryDraftResult(
+                clarification=unanswerable_clarification(),
+                retrieval=retrieval,
+            )
 
         prompt = self._prompt_engine.build_prompt(normalized_question, catalog, retrieval)
         draft = self._sql_generator.generate(prompt)
         if draft.result.clarification_needed:
             return QueryDraftResult(
-                clarification=provider_clarification(draft.result.clarification_options)
+                clarification=provider_clarification(draft.result.clarification_options),
+                retrieval=retrieval,
             )
         if draft.result.sql is not None:
             validation = self._sql_validator.validate(draft.result.sql, catalog)
@@ -91,7 +97,7 @@ class QueryDraftService:
                     result=draft.result.model_copy(update={"sql": validation.sql}),
                     telemetry=draft.telemetry,
                 )
-        return QueryDraftResult(draft=draft)
+        return QueryDraftResult(draft=draft, retrieval=retrieval)
 
 
 def normalize_question(question: str) -> str:

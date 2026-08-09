@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.core.exceptions import PublicAPIError
 from app.core.request_id import request_id
 from app.db.lifecycle import get_database_engine
+from app.domain.confidence import ValidationSignal
 from app.domain.query_execution import QueryExecutionResult
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
@@ -142,9 +143,18 @@ class GuardrailMetadataResponse(BaseModel):
     findings: list[GuardrailFindingResponse]
 
 
+class ValidationSignalResponse(BaseModel):
+    code: str
+    status: str
+    score: float
+    explanation: str
+    evidence: dict[str, Any]
+
+
 class HallucinationConfidenceResponse(BaseModel):
-    status: Literal["not_evaluated"]
+    status: Literal["deterministic_only", "not_applicable"]
     score: None = None
+    signals: list[ValidationSignalResponse]
 
 
 class QueryExecutionResponse(BaseModel):
@@ -302,6 +312,7 @@ def create_query_router(
             result.question,
             result.draft,
             result.execution,
+            result.validation_signals,
         )
 
     return router
@@ -452,6 +463,7 @@ def query_execution_response(
     question: str,
     draft: SQLGenerationDraft,
     execution: QueryExecutionResult,
+    validation_signals: tuple[ValidationSignal, ...] = (),
 ) -> QueryExecutionResponse:
     draft_response = sql_draft_response(current_request_id, question, draft)
     return QueryExecutionResponse(
@@ -480,7 +492,10 @@ def query_execution_response(
             referenced_relations=list(execution.plan.referenced_relations),
         ),
         guardrails=guardrail_metadata_response(execution),
-        hallucination_confidence=HallucinationConfidenceResponse(status="not_evaluated"),
+        hallucination_confidence=HallucinationConfidenceResponse(
+            status="deterministic_only",
+            signals=[validation_signal_response(signal) for signal in validation_signals],
+        ),
         metadata=draft_response.metadata,
     )
 
@@ -503,6 +518,16 @@ def guardrail_finding_response(finding: SQLValidationFinding) -> GuardrailFindin
         message=finding.message,
         rule_name=finding.rule_name,
         severity=finding.severity,
+    )
+
+
+def validation_signal_response(signal: ValidationSignal) -> ValidationSignalResponse:
+    return ValidationSignalResponse(
+        code=signal.code,
+        status=signal.status,
+        score=signal.score,
+        explanation=signal.explanation,
+        evidence=signal.evidence,
     )
 
 

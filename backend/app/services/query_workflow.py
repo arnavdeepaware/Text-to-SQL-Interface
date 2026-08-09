@@ -5,10 +5,15 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.core.config import Settings
+from app.domain.confidence import ValidationSignal
 from app.domain.query_execution import QueryExecutionResult
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft
 from app.providers.sql_generation import SQLGenerationError, SQLGenerator
+from app.services.confidence_signals import (
+    DeterministicValidationRequest,
+    DeterministicValidationService,
+)
 from app.services.query_draft import (
     ClarificationRequired,
     QueryDraftResult,
@@ -31,6 +36,10 @@ class QueryExecutor(Protocol):
 
 class QueryDraftProvider(Protocol):
     def draft(self, question: str, catalog: SchemaCatalog) -> QueryDraftResult: ...
+
+
+class DeterministicValidator(Protocol):
+    def validate(self, request: DeterministicValidationRequest) -> tuple[ValidationSignal, ...]: ...
 
 
 class QueryWorkflowError(RuntimeError):
@@ -58,6 +67,7 @@ class QueryWorkflowResult:
     draft: SQLGenerationDraft | None = None
     execution: QueryExecutionResult | None = None
     clarification: ClarificationRequired | None = None
+    validation_signals: tuple[ValidationSignal, ...] = ()
 
 
 class QueryWorkflowService:
@@ -71,6 +81,7 @@ class QueryWorkflowService:
         query_executor: QueryExecutor,
         request_id: str,
         draft_service: QueryDraftProvider | None = None,
+        deterministic_validator: DeterministicValidator | None = None,
     ) -> None:
         self._settings = settings
         self._catalog_provider = catalog_provider
@@ -78,6 +89,9 @@ class QueryWorkflowService:
         self._query_executor = query_executor
         self._request_id = request_id
         self._draft_service = draft_service
+        self._deterministic_validator = deterministic_validator or DeterministicValidationService(
+            settings
+        )
 
     def run(self, question: str, refresh_schema: bool = False) -> QueryWorkflowResult:
         log_audit("started", self._request_id)
@@ -123,6 +137,15 @@ class QueryWorkflowService:
             log_audit("blocked_or_failed_execution", self._request_id)
             raise
 
+        validation_signals = self._deterministic_validator.validate(
+            DeterministicValidationRequest(
+                question=normalized_question,
+                catalog=catalog,
+                draft=draft_result.draft,
+                execution=execution,
+                retrieval=draft_result.retrieval,
+            )
+        )
         log_audit(
             "executed",
             self._request_id,
@@ -130,11 +153,13 @@ class QueryWorkflowService:
             truncated=execution.truncated,
             plan_estimated_rows=execution.plan.estimated_rows,
             plan_total_cost=execution.plan.total_cost,
+            validation_signal_codes=[signal.code for signal in validation_signals],
         )
         return QueryWorkflowResult(
             question=normalized_question,
             draft=draft_result.draft,
             execution=execution,
+            validation_signals=validation_signals,
         )
 
 

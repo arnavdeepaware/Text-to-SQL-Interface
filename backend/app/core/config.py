@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     sql_guardrail_max_plan_total_cost: float = Field(default=100_000.0, ge=0.0)
     sql_execution_max_rows: int = Field(default=1_000, ge=1, le=10_000)
     sql_execution_lock_timeout_ms: int = Field(default=500, ge=50, le=10_000)
+    deterministic_validation_enabled: bool = True
+    result_sanity_null_heavy_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    result_sanity_min_percentage: float = Field(default=0.0)
+    result_sanity_max_percentage: float = Field(default=100.0)
+    result_sanity_min_date: str = "2020-01-01"
+    result_sanity_max_date: str = "2030-12-31"
     query_max_question_chars: int = Field(default=1_000, ge=1, le=10_000)
     openai_api_key: SecretStr | None = None
     openai_embedding_model: str = "text-embedding-3-small"
