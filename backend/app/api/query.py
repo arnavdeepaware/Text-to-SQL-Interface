@@ -493,11 +493,21 @@ def query_execution_response(
         ),
         guardrails=guardrail_metadata_response(execution),
         hallucination_confidence=HallucinationConfidenceResponse(
-            status="deterministic_only",
+            status=hallucination_confidence_status(validation_signals),
             signals=[validation_signal_response(signal) for signal in validation_signals],
         ),
         metadata=draft_response.metadata,
     )
+
+
+def hallucination_confidence_status(
+    validation_signals: tuple[ValidationSignal, ...],
+) -> Literal["deterministic_only", "not_applicable"]:
+    if validation_signals and all(
+        signal.status == "not_applicable" for signal in validation_signals
+    ):
+        return "not_applicable"
+    return "deterministic_only"
 
 
 def guardrail_metadata_response(execution: QueryExecutionResult) -> GuardrailMetadataResponse:

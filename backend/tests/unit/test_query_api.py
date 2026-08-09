@@ -358,6 +358,40 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
     assert executor.sql == "SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1"
 
 
+async def test_query_endpoint_marks_confidence_not_applicable_when_disabled() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1;",
+        explanation="Returns one order.",
+        model_confidence=0.9,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+
+    response = await post_query(
+        "Show one order",
+        generator=FakeSQLGenerator(result=result),
+        executor=FakeQueryExecutor(empty_execution_result()),
+        settings=Settings(environment="test", deterministic_validation_enabled=False),
+        request_id="req-confidence-disabled",
+    )
+
+    assert response.status_code == 200
+    confidence = response.json()["hallucination_confidence"]
+    assert confidence["status"] == "not_applicable"
+    assert confidence["signals"] == [
+        {
+            "code": "deterministic_validation_disabled",
+            "status": "not_applicable",
+            "score": 0.0,
+            "explanation": "Deterministic validation is disabled by configuration.",
+            "evidence": {},
+        }
+    ]
+
+
 async def test_query_endpoint_maps_expensive_plan_to_stable_public_error() -> None:
     result = SQLGenerationResult(
         sql="SELECT orders.order_id FROM commerce.orders AS orders;",
