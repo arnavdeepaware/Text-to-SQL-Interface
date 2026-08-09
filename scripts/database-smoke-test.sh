@@ -38,6 +38,9 @@ assert_eq() {
 echo "Checking PostgreSQL health..."
 compose exec -T "$service_name" pg_isready --username "$owner_user" --dbname "$database_name"
 
+echo "Bootstrapping read-only application role..."
+./scripts/bootstrap-readonly-role.sh
+
 echo "Checking tables..."
 table_count="$(
   scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'commerce' AND table_name IN ('customers', 'categories', 'products', 'orders', 'order_items', 'payments', 'refunds', 'shipments');"
@@ -74,19 +77,42 @@ assert_eq "$(
 )" "1" "products without recent orders"
 
 echo "Checking read-only role cannot write..."
-set +e
-compose exec -T "$service_name" psql \
-  -v ON_ERROR_STOP=1 \
-  --username "$readonly_user" \
-  --dbname "$database_name" \
-  --command "INSERT INTO commerce.categories (name) VALUES ('Forbidden Write');" >/dev/null 2>&1
-readonly_insert_status="$?"
-set -e
+assert_eq "$(
+  compose exec -T "$service_name" psql \
+    -v ON_ERROR_STOP=1 \
+    --username "$readonly_user" \
+    --dbname "$database_name" \
+    --tuples-only --no-align \
+    --command "SHOW default_transaction_read_only;"
+)" "on" "read-only role default_transaction_read_only"
 
-if [ "$readonly_insert_status" -eq 0 ]; then
-  echo "FAIL: read-only role unexpectedly inserted a row" >&2
-  exit 1
-fi
+assert_readonly_denied() {
+  label="$1"
+  sql="$2"
 
-echo "OK: read-only role insert denied"
+  set +e
+  compose exec -T "$service_name" psql \
+    -v ON_ERROR_STOP=1 \
+    --username "$readonly_user" \
+    --dbname "$database_name" \
+    --command "$sql" >/dev/null 2>&1
+  status="$?"
+  set -e
+
+  if [ "$status" -eq 0 ]; then
+    echo "FAIL: read-only role unexpectedly allowed $label" >&2
+    exit 1
+  fi
+
+  echo "OK: read-only role denied $label"
+}
+
+assert_readonly_denied "INSERT" "INSERT INTO commerce.categories (name) VALUES ('Forbidden Write');"
+assert_readonly_denied "UPDATE" "UPDATE commerce.orders SET status = 'paid' WHERE order_id = 1;"
+assert_readonly_denied "DELETE" "DELETE FROM commerce.orders WHERE order_id = 1;"
+assert_readonly_denied "CREATE TABLE" "CREATE TABLE commerce.forbidden_write (id integer);"
+assert_readonly_denied "CREATE TEMP TABLE" "CREATE TEMP TABLE forbidden_temp (id integer);"
+assert_readonly_denied "DROP TABLE" "DROP TABLE commerce.orders;"
+assert_readonly_denied "GRANT" "GRANT SELECT ON commerce.orders TO ${readonly_user};"
+
 echo "Database smoke test passed."

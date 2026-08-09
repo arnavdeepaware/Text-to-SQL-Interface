@@ -22,5 +22,6 @@ This repository will deliver a safe, portfolio-quality Text-to-SQL system. The i
 - Security-sensitive SQL code must fail closed. Generated queries must never receive write privileges.
 - Use an ExecPlan from `.agent/PLANS.md` for complex cross-cutting or security-critical work.
 - Update `docs/STATUS.md` only at phase boundaries.
+- When the user explicitly asks, it is okay to commit and push changes.
 
 Nested `AGENTS.md` files add directory-specific rules; this file remains authoritative where guidance conflicts.

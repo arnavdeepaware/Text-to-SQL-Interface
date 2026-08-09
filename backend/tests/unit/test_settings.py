@@ -26,6 +26,19 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_port == 5432
     assert settings.database_name == "text_to_sql"
     assert settings.database_user == "text_to_sql_reader"
+    assert settings.sql_guardrail_max_subquery_depth == 3
+    assert settings.sql_guardrail_max_returned_rows == 1000
+    assert settings.sql_guardrail_explain_timeout_ms == 1000
+    assert settings.sql_guardrail_max_plan_rows == 50000
+    assert settings.sql_guardrail_max_plan_total_cost == 100000.0
+    assert settings.sql_execution_max_rows == 1000
+    assert settings.sql_execution_lock_timeout_ms == 500
+    assert settings.deterministic_validation_enabled is True
+    assert settings.result_sanity_null_heavy_threshold == 0.8
+    assert settings.result_sanity_min_percentage == 0.0
+    assert settings.result_sanity_max_percentage == 100.0
+    assert settings.result_sanity_min_date == "2020-01-01"
+    assert settings.result_sanity_max_date == "2030-12-31"
 
 
 def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:
