@@ -14,7 +14,7 @@ The root-level Python prototype is existing exploratory work; the planned implem
 
 ## Status
 
-Phase 0 (repository foundation) is complete. The next phase is schema introspection and schema-aware metadata. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Phase 4 (query history, feedback, and privacy) is complete. The next phase is frontend result presentation and release hardening. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Setup
 
@@ -22,6 +22,12 @@ Install the backend toolchain with uv:
 
 ```bash
 make backend-install
+```
+
+Install the frontend toolchain with npm:
+
+```bash
+make frontend-install
 ```
 
 Start local PostgreSQL when you need database-backed checks:
@@ -41,12 +47,30 @@ Start the FastAPI backend locally:
 make backend-dev
 ```
 
+Start the Vite frontend locally:
+
+```bash
+make frontend-dev
+```
+
+The frontend reads `VITE_API_BASE_URL` at build and dev-server time. Leave it unset when the
+frontend is served behind the same origin as the API, or set it to a backend origin such as
+`http://localhost:8000` during local split-server development.
+
 Run focused backend checks while developing:
 
 ```bash
 make backend-test
 make backend-lint
 make backend-typecheck
+```
+
+Run focused frontend checks while developing:
+
+```bash
+make frontend-test
+make frontend-lint
+make frontend-build
 ```
 
 Validate Docker Compose:
@@ -65,6 +89,12 @@ Run the complete backend check before finishing backend work:
 
 ```bash
 make backend-check
+```
+
+Run the complete frontend check before finishing frontend work:
+
+```bash
+make frontend-check
 ```
 
 To include database integration tests in the complete backend pass:
