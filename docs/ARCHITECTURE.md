@@ -9,7 +9,8 @@
 5. A hallucination detector checks referenced tables, columns, joins, and answer alignment.
 6. A confidence service combines model and deterministic validation signals.
 7. Only an approved query runs through a PostgreSQL read-only role with time, row, and cost bounds.
-8. The API returns results, SQL, confidence, and any limitations to the UI; evaluation telemetry is recorded without secrets.
+8. The API returns results, SQL, confidence, and any limitations to the UI; redacted audit history
+   and feedback are recorded without secrets.
 
 ## Components
 
@@ -26,6 +27,9 @@
   examples.
 - `backend/app/api/query.py`: generation-only SQL draft endpoint with deterministic ambiguity
   handling, request IDs, and stable public errors. SQL execution is out of scope.
+- `backend/app/api/history.py`, `backend/app/services/query_history.py`, and
+  `backend/app/repositories/query_history.py`: redacted query history and feedback capture backed
+  by isolated audit tables.
 - `backend/app/repositories` and `backend/app/db`: schema metadata and database access.
 - `database/init`: reproducible local PostgreSQL setup.
 - `evals/cases`: curated fixtures; `evals/reports`: generated evaluation output.
@@ -34,3 +38,8 @@
 ## Security boundary
 
 The backend, not the frontend or model provider, owns authorization and execution. Reject on validation uncertainty. Generated SQL may only be read-only and must execute with least privilege.
+
+Audit/history data lives in `text_to_sql_audit`, outside the schemas exposed to generated SQL.
+The generated-query role is granted only named commerce tables and is explicitly denied access to
+audit tables. The redaction layer masks likely secrets, but it is a configurable safeguard rather
+than a complete data-loss-prevention system.

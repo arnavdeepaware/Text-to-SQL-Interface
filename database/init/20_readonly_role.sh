@@ -37,8 +37,11 @@ REVOKE TEMPORARY ON DATABASE :"database_name" FROM PUBLIC;
 REVOKE ALL ON DATABASE :"database_name" FROM :"readonly_user";
 REVOKE ALL ON SCHEMA public FROM :"readonly_user";
 REVOKE ALL ON SCHEMA commerce FROM :"readonly_user";
+REVOKE ALL ON SCHEMA text_to_sql_audit FROM :"readonly_user";
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA commerce FROM :"readonly_user";
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA commerce FROM :"readonly_user";
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA text_to_sql_audit FROM :"readonly_user";
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA text_to_sql_audit FROM :"readonly_user";
 GRANT CONNECT ON DATABASE :"database_name" TO :"readonly_user";
 GRANT USAGE ON SCHEMA commerce TO :"readonly_user";
 GRANT SELECT ON TABLE

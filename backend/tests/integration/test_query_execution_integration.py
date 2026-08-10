@@ -83,6 +83,69 @@ async def test_query_endpoint_executes_safe_approved_sql_against_postgres() -> N
 
 
 @pytest.mark.integration
+async def test_query_history_and_feedback_round_trip_against_postgres() -> None:
+    result = SQLGenerationResult(
+        sql=(
+            "SELECT orders.order_id, orders.status "
+            "FROM commerce.orders AS orders "
+            "ORDER BY orders.order_id "
+            "LIMIT 1;"
+        ),
+        explanation="Returns one order.",
+        model_confidence=0.91,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id", "commerce.orders.status"],
+        assumptions=["No secret should be stored: token=providersecretvalue123"],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+    app = create_app(
+        settings=Settings(environment="test"),
+        sql_generator_factory=lambda settings: FakeSQLGenerator(result=result),
+    )
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            query_response = await client.post(
+                "/v1/query",
+                json={"question": "Show all orders api_key=supersecretvalue123"},
+                headers={"X-Request-ID": "req-history-integration"},
+            )
+            feedback_response = await client.post(
+                "/v1/feedback",
+                json={
+                    "request_id": "req-history-integration",
+                    "rating": "incorrect",
+                    "comment": "password=hunter2hunter2",
+                },
+            )
+            history_response = await client.get("/v1/history?limit=100")
+
+    assert query_response.status_code == 200
+    assert feedback_response.status_code == 201
+    assert feedback_response.json()["comment"] == "password=[REDACTED]"
+    assert history_response.status_code == 200
+    records = history_response.json()["records"]
+    record = next(
+        item for item in records if item["request_id"] == "req-history-integration"
+    )
+    assert record["outcome"] == "success"
+    assert record["generated_sql"].startswith("SELECT orders.order_id")
+    assert "supersecretvalue123" not in record["normalized_question"]
+    assert "[REDACTED]" in record["normalized_question"]
+    assert record["execution_metadata"]["row_count"] == 1
+    assert "rows" not in record["execution_metadata"]
+    assert record["confidence_breakdown"]["status"] in {"passed", "unavailable"}
+    assert record["provider_metadata"]["provider_name"] == "fake"
+    assert "providersecretvalue123" not in str(record["provider_metadata"])
+    assert record["feedback"][0]["rating"] == "incorrect"
+    assert record["feedback"][0]["comment"] == "password=[REDACTED]"
+    assert history_response.json()["retention_policy"]["status"] == "placeholder"
+    assert history_response.json()["privacy_limitations"]
+
+
+@pytest.mark.integration
 async def test_query_endpoint_blocks_expensive_plan_before_execution() -> None:
     result = SQLGenerationResult(
         sql="SELECT orders.order_id FROM commerce.orders AS orders;",
@@ -344,6 +407,11 @@ def test_application_database_role_cannot_write_directly() -> None:
             "DELETE FROM commerce.orders WHERE order_id = 1",
             "CREATE TABLE commerce.forbidden_write (id integer)",
             "CREATE TEMP TABLE forbidden_temp (id integer)",
+            "SELECT * FROM text_to_sql_audit.query_audit_records",
+            (
+                "INSERT INTO text_to_sql_audit.query_feedback "
+                "(request_id, rating) VALUES ('req', 'unsure')"
+            ),
         )
         for statement in denied_statements:
             with engine.connect() as connection:

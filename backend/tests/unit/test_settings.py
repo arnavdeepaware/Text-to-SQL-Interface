@@ -2,7 +2,7 @@ from pydantic import SecretStr
 from pytest import MonkeyPatch
 
 from app.core.config import Settings
-from app.db.engine import build_database_url
+from app.db.engine import build_audit_database_url, build_database_url
 
 
 def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
@@ -15,6 +15,8 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.delenv("TEXT_TO_SQL_DATABASE_NAME", raising=False)
     monkeypatch.delenv("TEXT_TO_SQL_DATABASE_USER", raising=False)
     monkeypatch.delenv("TEXT_TO_SQL_DATABASE_PASSWORD", raising=False)
+    monkeypatch.delenv("TEXT_TO_SQL_AUDIT_DATABASE_USER", raising=False)
+    monkeypatch.delenv("TEXT_TO_SQL_AUDIT_DATABASE_PASSWORD", raising=False)
 
     settings = Settings()
 
@@ -26,6 +28,13 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_port == 5432
     assert settings.database_name == "text_to_sql"
     assert settings.database_user == "text_to_sql_reader"
+    assert settings.audit_database_user == "text_to_sql_owner"
+    assert settings.query_history_enabled is True
+    assert settings.query_history_default_limit == 25
+    assert settings.query_history_max_limit == 100
+    assert settings.query_feedback_comment_max_chars == 500
+    assert settings.query_history_retention_days == 30
+    assert settings.query_feedback_retention_days == 90
     assert settings.sql_guardrail_max_subquery_depth == 3
     assert settings.sql_guardrail_max_returned_rows == 1000
     assert settings.sql_guardrail_explain_timeout_ms == 1000
@@ -69,6 +78,9 @@ def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("TEXT_TO_SQL_DATABASE_NAME", "analytics")
     monkeypatch.setenv("TEXT_TO_SQL_DATABASE_USER", "reader")
     monkeypatch.setenv("TEXT_TO_SQL_DATABASE_PASSWORD", "not-a-real-secret")
+    monkeypatch.setenv("TEXT_TO_SQL_AUDIT_DATABASE_USER", "audit_writer")
+    monkeypatch.setenv("TEXT_TO_SQL_AUDIT_DATABASE_PASSWORD", "audit-secret")
+    monkeypatch.setenv("TEXT_TO_SQL_QUERY_HISTORY_RETENTION_DAYS", "45")
 
     settings = Settings()
 
@@ -80,6 +92,9 @@ def test_settings_read_environment_overrides(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_name == "analytics"
     assert settings.database_user == "reader"
     assert settings.database_password.get_secret_value() == "not-a-real-secret"
+    assert settings.audit_database_user == "audit_writer"
+    assert settings.audit_database_password.get_secret_value() == "audit-secret"
+    assert settings.query_history_retention_days == 45
 
 
 def test_database_url_hides_password_by_default() -> None:
@@ -95,3 +110,20 @@ def test_database_url_hides_password_by_default() -> None:
 
     assert str(url) == "postgresql+psycopg://reader:***@localhost:5432/text_to_sql"
     assert "sensitive-value" not in str(url)
+
+
+def test_audit_database_url_uses_separate_credentials() -> None:
+    settings = Settings(
+        database_user="reader",
+        database_password=SecretStr("reader-secret"),
+        audit_database_user="audit_writer",
+        audit_database_password=SecretStr("audit-secret"),
+        database_host="localhost",
+        database_port=5432,
+        database_name="text_to_sql",
+    )
+
+    url = build_audit_database_url(settings)
+
+    assert str(url) == "postgresql+psycopg://audit_writer:***@localhost:5432/text_to_sql"
+    assert "audit-secret" not in str(url)

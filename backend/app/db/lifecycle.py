@@ -22,6 +22,15 @@ def get_database_engine(
     return cast(Engine, engine)
 
 
+def get_audit_database_engine(app: FastAPI) -> Engine:
+    engine = getattr(app.state, "audit_database_engine", None)
+    if engine is None:
+        msg = "Audit database engine is not initialized."
+        raise RuntimeError(msg)
+
+    return cast(Engine, engine)
+
+
 @asynccontextmanager
 async def database_lifespan(
     app: FastAPI,

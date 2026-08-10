@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     database_statement_timeout_ms: int = Field(default=5_000, ge=100, le=60_000)
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=0, ge=0, le=20)
+    audit_database_user: str = "text_to_sql_owner"
+    audit_database_password: SecretStr = SecretStr("text_to_sql_local_password")
+    query_history_enabled: bool = True
+    query_history_default_limit: int = Field(default=25, ge=1, le=100)
+    query_history_max_limit: int = Field(default=100, ge=1, le=500)
+    query_feedback_comment_max_chars: int = Field(default=500, ge=0, le=2_000)
+    query_history_retention_days: int = Field(default=30, ge=1, le=3650)
+    query_feedback_retention_days: int = Field(default=90, ge=1, le=3650)
     schema_introspection_schemas: tuple[str, ...] = ("commerce",)
     schema_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
     schema_sample_limit: int = Field(default=20, ge=0, le=100)

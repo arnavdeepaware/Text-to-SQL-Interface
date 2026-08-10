@@ -30,8 +30,21 @@ concise rationale. Confidence scoring treats unavailable evidence separately fro
 keeps provider-reported model confidence as a small bounded auxiliary input, and preserves the
 existing fail-closed guardrail and read-only execution boundary.
 
+## Phase 4 — Query History, Feedback, And Privacy
+
+**Status:** Complete
+
+The backend now persists redacted query audit records and user feedback in an isolated
+`text_to_sql_audit` schema that is separate from the generated-SQL commerce dataset. Query history
+stores request IDs, normalized questions, approved SQL when available, outcomes, blocked reason
+codes, execution metadata, confidence summaries, provider telemetry, and timestamps without raw
+rows, raw prompts, credentials, stack traces, or full provider responses. `GET /v1/history` exposes
+paginated history with retention and privacy-limit placeholders, and `POST /v1/feedback` records
+correct/incorrect/unsure feedback linked to a query audit record. The generated-query reader role is
+explicitly denied access to audit tables.
+
 ## Next phase
 
-Phase 4 should add persistent query history, feedback capture, privacy hardening, broader
-adversarial eval reports, and frontend result presentation without weakening the established
-read-only execution boundary.
+Phase 5 should add frontend result presentation, broader adversarial eval reports, automated
+retention enforcement, and release-readiness hardening without weakening the established read-only
+execution boundary.

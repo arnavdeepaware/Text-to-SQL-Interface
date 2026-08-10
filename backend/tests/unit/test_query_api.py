@@ -9,6 +9,12 @@ from sqlalchemy import Engine
 
 from app.core.config import Settings
 from app.domain.glossary import BusinessGlossary, GlossaryTerm
+from app.domain.history import (
+    QueryAuditRecordCreate,
+    QueryFeedback,
+    QueryFeedbackCreate,
+    QueryHistoryPage,
+)
 from app.domain.prompt import SQLGenerationPrompt
 from app.domain.query_execution import QueryExecutionResult, QueryPlanSummary, QueryResultColumn
 from app.domain.schema import (
@@ -23,7 +29,9 @@ from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
 from app.domain.sql_guardrails import ReferencedColumn, ReferencedTable, SQLValidationMetadata
 from app.main import create_app
 from app.providers.fake_sql_generation import FakeSQLGenerator
+from app.repositories.query_history import QueryHistoryPersistenceError
 from app.services.query_execution import QueryPlanThresholdExceededError
+from app.services.query_history import QueryHistoryStore
 
 
 class FakeSchemaCatalogService:
@@ -434,6 +442,34 @@ async def test_query_endpoint_maps_expensive_plan_to_stable_public_error() -> No
     }
 
 
+async def test_query_endpoint_keeps_blocked_response_when_history_persistence_fails() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders;",
+        explanation="Would be expensive.",
+        model_confidence=0.6,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+
+    response = await post_query(
+        "Show all orders",
+        generator=FakeSQLGenerator(result=result),
+        executor=FailingQueryExecutor(QueryPlanThresholdExceededError("too expensive")),
+        request_id="req-expensive-history-fails",
+        history_repository=FailingHistoryRepository(),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "sql_guardrail_plan_too_expensive",
+        "message": "Generated SQL exceeded planning safety limits.",
+        "request_id": "req-expensive-history-fails",
+    }
+
+
 async def test_query_endpoint_maps_provider_timeout_to_stable_public_error() -> None:
     executor = FakeQueryExecutor(empty_execution_result())
 
@@ -633,6 +669,7 @@ async def post_query(
     executor: FakeQueryExecutor | FailingQueryExecutor | None = None,
     settings: Settings | None = None,
     request_id: str = "req-test",
+    history_repository: QueryHistoryStore | None = None,
 ) -> Response:
     fake_engine = Mock(spec=Engine)
     fake_service = FakeSchemaCatalogService()
@@ -644,6 +681,11 @@ async def post_query(
         schema_catalog_factory=lambda engine, settings: fake_service,
         sql_generator_factory=lambda settings: sql_generator,
         query_executor_factory=lambda engine, settings: query_executor,
+        query_history_repository_factory=(
+            (lambda engine: history_repository)
+            if history_repository is not None
+            else None
+        ),
     )
     transport = ASGITransport(app=app)
 
@@ -683,6 +725,20 @@ class FailingQueryExecutor:
 
     def execute(self, sql: str, catalog: SchemaCatalog) -> QueryExecutionResult:
         raise self._error
+
+
+class FailingHistoryRepository:
+    def ensure_schema(self) -> None:
+        return None
+
+    def create_or_update_record(self, record: QueryAuditRecordCreate) -> None:
+        raise QueryHistoryPersistenceError("history unavailable")
+
+    def add_feedback(self, feedback: QueryFeedbackCreate) -> QueryFeedback:
+        raise QueryHistoryPersistenceError("history unavailable")
+
+    def list_records(self, limit: int, offset: int) -> QueryHistoryPage:
+        raise QueryHistoryPersistenceError("history unavailable")
 
 
 def sql_result(sql: str) -> SQLGenerationResult:

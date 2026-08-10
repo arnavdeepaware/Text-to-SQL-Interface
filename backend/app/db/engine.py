@@ -9,10 +9,30 @@ logger = logging.getLogger(__name__)
 
 
 def build_database_url(settings: Settings) -> URL:
-    return URL.create(
-        "postgresql+psycopg",
+    return build_database_url_for_credentials(
+        settings,
         username=settings.database_user,
         password=settings.database_password.get_secret_value(),
+    )
+
+
+def build_audit_database_url(settings: Settings) -> URL:
+    return build_database_url_for_credentials(
+        settings,
+        username=settings.audit_database_user,
+        password=settings.audit_database_password.get_secret_value(),
+    )
+
+
+def build_database_url_for_credentials(
+    settings: Settings,
+    username: str,
+    password: str,
+) -> URL:
+    return URL.create(
+        "postgresql+psycopg",
+        username=username,
+        password=password,
         host=settings.database_host,
         port=settings.database_port,
         database=settings.database_name,
@@ -29,6 +49,24 @@ def create_database_engine(settings: Settings) -> Engine:
         connect_args={
             "connect_timeout": settings.database_connect_timeout_seconds,
             "application_name": "text-to-sql-backend",
+            "options": (
+                f"-c statement_timeout={settings.database_statement_timeout_ms} "
+                f"-c idle_in_transaction_session_timeout={settings.database_statement_timeout_ms}"
+            ),
+        },
+    )
+
+
+def create_audit_database_engine(settings: Settings) -> Engine:
+    return create_engine(
+        build_audit_database_url(settings),
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
+        pool_recycle=1_800,
+        connect_args={
+            "connect_timeout": settings.database_connect_timeout_seconds,
+            "application_name": "text-to-sql-audit",
             "options": (
                 f"-c statement_timeout={settings.database_statement_timeout_ms} "
                 f"-c idle_in_transaction_session_timeout={settings.database_statement_timeout_ms}"
