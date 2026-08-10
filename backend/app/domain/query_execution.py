@@ -42,6 +42,7 @@ class QueryPlanInspection:
 class QueryExecutionResult:
     """Typed result of a guarded read-only query execution."""
 
+    executed_sql: str
     columns: tuple[QueryResultColumn, ...]
     rows: tuple[dict[str, Any], ...]
     row_count: int

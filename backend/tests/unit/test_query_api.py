@@ -9,6 +9,12 @@ from sqlalchemy import Engine
 
 from app.core.config import Settings
 from app.domain.glossary import BusinessGlossary, GlossaryTerm
+from app.domain.history import (
+    QueryAuditRecordCreate,
+    QueryFeedback,
+    QueryFeedbackCreate,
+    QueryHistoryPage,
+)
 from app.domain.prompt import SQLGenerationPrompt
 from app.domain.query_execution import QueryExecutionResult, QueryPlanSummary, QueryResultColumn
 from app.domain.schema import (
@@ -23,7 +29,9 @@ from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
 from app.domain.sql_guardrails import ReferencedColumn, ReferencedTable, SQLValidationMetadata
 from app.main import create_app
 from app.providers.fake_sql_generation import FakeSQLGenerator
+from app.repositories.query_history import QueryHistoryPersistenceError
 from app.services.query_execution import QueryPlanThresholdExceededError
+from app.services.query_history import QueryHistoryStore
 
 
 class FakeSchemaCatalogService:
@@ -280,6 +288,7 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
     )
     executor = FakeQueryExecutor(
         QueryExecutionResult(
+            executed_sql="SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1",
             columns=(QueryResultColumn("order_id", "20"),),
             rows=({"order_id": 1},),
             row_count=1,
@@ -346,8 +355,16 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
         "subquery_depth": 0,
         "findings": [],
     }
-    assert payload["hallucination_confidence"]["status"] == "deterministic_only"
-    assert payload["hallucination_confidence"]["score"] is None
+    assert payload["hallucination_confidence"]["status"] in {"passed", "unavailable"}
+    assert payload["hallucination_confidence"]["score"] is not None
+    assert payload["hallucination_confidence"]["confidence_band"] in {
+        "high",
+        "medium",
+        "low",
+        "blocked",
+    }
+    assert payload["hallucination_confidence"]["signal_breakdown"]
+    assert payload["hallucination_confidence"]["rationale"]
     assert {
         signal["code"] for signal in payload["hallucination_confidence"]["signals"]
     } >= {
@@ -356,6 +373,44 @@ async def test_query_endpoint_executes_safe_query_with_typed_result() -> None:
     }
     assert "raw_plan" not in payload
     assert executor.sql == "SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1"
+
+
+async def test_query_endpoint_marks_confidence_not_applicable_when_disabled() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders LIMIT 1;",
+        explanation="Returns one order.",
+        model_confidence=0.9,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+
+    response = await post_query(
+        "Show one order",
+        generator=FakeSQLGenerator(result=result),
+        executor=FakeQueryExecutor(empty_execution_result()),
+        settings=Settings(environment="test", deterministic_validation_enabled=False),
+        request_id="req-confidence-disabled",
+    )
+
+    assert response.status_code == 200
+    confidence = response.json()["hallucination_confidence"]
+    assert confidence["status"] == "not_applicable"
+    assert confidence["score"] is None
+    assert confidence["confidence_band"] == "not_applicable"
+    assert confidence["signal_breakdown"] == []
+    assert confidence["rationale"]
+    assert confidence["signals"] == [
+        {
+            "code": "deterministic_validation_disabled",
+            "status": "not_applicable",
+            "score": 0.0,
+            "explanation": "Deterministic validation is disabled by configuration.",
+            "evidence": {},
+        }
+    ]
 
 
 async def test_query_endpoint_maps_expensive_plan_to_stable_public_error() -> None:
@@ -384,6 +439,34 @@ async def test_query_endpoint_maps_expensive_plan_to_stable_public_error() -> No
             "message": "Generated SQL exceeded planning safety limits.",
             "request_id": "req-expensive",
         }
+    }
+
+
+async def test_query_endpoint_keeps_blocked_response_when_history_persistence_fails() -> None:
+    result = SQLGenerationResult(
+        sql="SELECT orders.order_id FROM commerce.orders AS orders;",
+        explanation="Would be expensive.",
+        model_confidence=0.6,
+        tables_used=["commerce.orders"],
+        columns_used=["commerce.orders.order_id"],
+        assumptions=[],
+        clarification_needed=False,
+        clarification_options=[],
+    )
+
+    response = await post_query(
+        "Show all orders",
+        generator=FakeSQLGenerator(result=result),
+        executor=FailingQueryExecutor(QueryPlanThresholdExceededError("too expensive")),
+        request_id="req-expensive-history-fails",
+        history_repository=FailingHistoryRepository(),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "sql_guardrail_plan_too_expensive",
+        "message": "Generated SQL exceeded planning safety limits.",
+        "request_id": "req-expensive-history-fails",
     }
 
 
@@ -586,6 +669,7 @@ async def post_query(
     executor: FakeQueryExecutor | FailingQueryExecutor | None = None,
     settings: Settings | None = None,
     request_id: str = "req-test",
+    history_repository: QueryHistoryStore | None = None,
 ) -> Response:
     fake_engine = Mock(spec=Engine)
     fake_service = FakeSchemaCatalogService()
@@ -597,6 +681,11 @@ async def post_query(
         schema_catalog_factory=lambda engine, settings: fake_service,
         sql_generator_factory=lambda settings: sql_generator,
         query_executor_factory=lambda engine, settings: query_executor,
+        query_history_repository_factory=(
+            (lambda engine: history_repository)
+            if history_repository is not None
+            else None
+        ),
     )
     transport = ASGITransport(app=app)
 
@@ -638,6 +727,20 @@ class FailingQueryExecutor:
         raise self._error
 
 
+class FailingHistoryRepository:
+    def ensure_schema(self) -> None:
+        return None
+
+    def create_or_update_record(self, record: QueryAuditRecordCreate) -> None:
+        raise QueryHistoryPersistenceError("history unavailable")
+
+    def add_feedback(self, feedback: QueryFeedbackCreate) -> QueryFeedback:
+        raise QueryHistoryPersistenceError("history unavailable")
+
+    def list_records(self, limit: int, offset: int) -> QueryHistoryPage:
+        raise QueryHistoryPersistenceError("history unavailable")
+
+
 def sql_result(sql: str) -> SQLGenerationResult:
     return SQLGenerationResult(
         sql=sql,
@@ -653,6 +756,7 @@ def sql_result(sql: str) -> SQLGenerationResult:
 
 def empty_execution_result() -> QueryExecutionResult:
     return QueryExecutionResult(
+        executed_sql="SELECT 1 AS generated_sql_placeholder LIMIT 1000",
         columns=(),
         rows=(),
         row_count=0,

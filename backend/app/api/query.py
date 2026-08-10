@@ -6,12 +6,14 @@ from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from app.api.history import QueryHistoryRepositoryFactory, get_query_history_service
 from app.api.schema import SchemaCatalogFactory, get_schema_catalog_service
 from app.core.config import Settings
 from app.core.exceptions import PublicAPIError
 from app.core.request_id import request_id
 from app.db.lifecycle import get_database_engine
-from app.domain.confidence import ValidationSignal
+from app.domain.confidence import ConfidenceComponent, ConfidenceSummary, ValidationSignal
+from app.domain.history import QueryOutcome
 from app.domain.query_execution import QueryExecutionResult
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_generation import SQLGenerationDraft, SQLGenerationResult
@@ -27,6 +29,7 @@ from app.providers.sql_generation import (
     SQLGenerationRateLimitError,
     SQLGenerator,
 )
+from app.repositories.query_history import QueryHistoryRepository
 from app.services.query_draft import (
     ClarificationRequired,
     QueryDraftService,
@@ -42,6 +45,7 @@ from app.services.query_execution import (
     QueryPlanThresholdExceededError,
     QueryPlanTimeoutError,
 )
+from app.services.query_history import QueryHistoryService
 from app.services.query_workflow import (
     QueryWorkflowError,
     QueryWorkflowMissingSQLError,
@@ -151,9 +155,35 @@ class ValidationSignalResponse(BaseModel):
     evidence: dict[str, Any]
 
 
+class ConfidenceComponentResponse(BaseModel):
+    name: str
+    status: str
+    score: float
+    weight: float
+    contribution: float
+    explanation: str
+    signal_codes: list[str]
+    evidence: dict[str, Any]
+
+
 class HallucinationConfidenceResponse(BaseModel):
-    status: Literal["deterministic_only", "not_applicable"]
-    score: None = None
+    status: Literal[
+        "passed",
+        "failed",
+        "unavailable",
+        "not_applicable",
+    ]
+    score: float | None
+    confidence_band: Literal[
+        "high",
+        "medium",
+        "low",
+        "blocked",
+        "not_applicable",
+    ]
+    signal_breakdown: list[ConfidenceComponentResponse]
+    warnings: list[str]
+    rationale: str
     signals: list[ValidationSignalResponse]
 
 
@@ -185,6 +215,7 @@ def create_query_router(
     schema_catalog_factory: SchemaCatalogFactory = SchemaCatalogService,
     sql_generator_factory: SQLGeneratorFactory | None = None,
     query_executor_factory: QueryExecutorFactory = QueryExecutionService,
+    query_history_repository_factory: QueryHistoryRepositoryFactory = QueryHistoryRepository,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1", tags=["query"])
 
@@ -245,6 +276,12 @@ def create_query_router(
         catalog_service = get_schema_catalog_service(request, settings, schema_catalog_factory)
         generator = get_sql_generator(request, settings, sql_generator_factory)
         executor = get_query_executor(request, settings, query_executor_factory)
+        history_service = get_query_history_service(
+            request,
+            settings,
+            query_history_repository_factory,
+        )
+        normalized_for_history = normalize_question(payload.question)
         workflow = QueryWorkflowService(
             settings=settings,
             catalog_provider=catalog_service,
@@ -256,11 +293,25 @@ def create_query_router(
         try:
             result = workflow.run(payload.question, refresh_schema=payload.refresh_schema)
         except QueryWorkflowValidationError as exc:
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="blocked",
+                blocked_reasons=(exc.public_code,),
+            )
             raise public_error_from_query_workflow_error(exc) from exc
         except SQLGenerationError as exc:
             logger.warning(
                 "Query execution provider error",
                 extra={"request_id": request_id(request), "error_code": exc.public_code},
+            )
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="failed",
+                blocked_reasons=(exc.public_code,),
             )
             raise public_error_from_generation_error(exc) from exc
         except SQLGuardrailValidationError as exc:
@@ -271,6 +322,18 @@ def create_query_router(
                     "finding_codes": [finding.code for finding in exc.result.findings],
                 },
             )
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="blocked",
+                draft=None,
+                generated_sql=exc.result.original_sql,
+                blocked_reasons=(
+                    exc.public_code,
+                    *tuple(finding.code for finding in exc.result.findings),
+                ),
+            )
             raise public_error_from_sql_validation_error(exc) from exc
         except QueryPlanInspectionError as exc:
             logger.warning(
@@ -279,6 +342,13 @@ def create_query_router(
                     "request_id": request_id(request),
                     "error_code": exc.public_code,
                 },
+            )
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="blocked",
+                blocked_reasons=(exc.public_code,),
             )
             raise public_error_from_query_plan_error(exc) from exc
         except QueryExecutionError as exc:
@@ -289,12 +359,33 @@ def create_query_router(
                     "error_code": exc.public_code,
                 },
             )
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="failed",
+                blocked_reasons=(exc.public_code,),
+            )
             raise public_error_from_query_execution_error(exc) from exc
         except QueryWorkflowError as exc:
+            record_history_safely(
+                history_service,
+                request_id=request_id(request),
+                normalized_question=normalized_for_history,
+                outcome="failed",
+                blocked_reasons=(exc.public_code,),
+            )
             raise public_error_from_query_workflow_error(exc) from exc
 
         current_request_id = request_id(request)
         if result.clarification is not None:
+            record_history_safely(
+                history_service,
+                request_id=current_request_id,
+                normalized_question=result.question,
+                outcome="clarification_required",
+                blocked_reasons=("clarification_required",),
+            )
             return clarification_response(
                 current_request_id,
                 result.question,
@@ -307,15 +398,47 @@ def create_query_router(
                 "Query generation did not produce a result.",
             )
         logger.info("Query executed", extra={"request_id": current_request_id})
+        record_history_safely(
+            history_service,
+            request_id=current_request_id,
+            normalized_question=result.question,
+            outcome="success",
+            draft=result.draft,
+            execution=result.execution,
+            confidence=result.confidence,
+        )
         return query_execution_response(
             current_request_id,
             result.question,
             result.draft,
             result.execution,
-            result.validation_signals,
+            result.confidence,
         )
 
     return router
+
+
+def record_history_safely(
+    history_service: QueryHistoryService | Any,
+    request_id: str,
+    normalized_question: str,
+    outcome: QueryOutcome,
+    draft: SQLGenerationDraft | None = None,
+    execution: QueryExecutionResult | None = None,
+    confidence: ConfidenceSummary | None = None,
+    blocked_reasons: tuple[str, ...] = (),
+    generated_sql: str | None = None,
+) -> None:
+    history_service.try_record_query(
+        request_id=request_id,
+        normalized_question=normalized_question,
+        outcome=outcome,
+        draft=draft,
+        execution=execution,
+        confidence=confidence,
+        blocked_reasons=blocked_reasons,
+        generated_sql=generated_sql,
+    )
 
 
 def validate_question(question: str, settings: Settings) -> str:
@@ -463,9 +586,10 @@ def query_execution_response(
     question: str,
     draft: SQLGenerationDraft,
     execution: QueryExecutionResult,
-    validation_signals: tuple[ValidationSignal, ...] = (),
+    confidence: ConfidenceSummary | None,
 ) -> QueryExecutionResponse:
     draft_response = sql_draft_response(current_request_id, question, draft)
+    confidence = confidence or fallback_confidence_summary()
     return QueryExecutionResponse(
         result_type="query_result",
         request_id=current_request_id,
@@ -492,11 +616,47 @@ def query_execution_response(
             referenced_relations=list(execution.plan.referenced_relations),
         ),
         guardrails=guardrail_metadata_response(execution),
-        hallucination_confidence=HallucinationConfidenceResponse(
-            status="deterministic_only",
-            signals=[validation_signal_response(signal) for signal in validation_signals],
-        ),
+        hallucination_confidence=confidence_response(confidence),
         metadata=draft_response.metadata,
+    )
+
+
+def confidence_response(confidence: ConfidenceSummary) -> HallucinationConfidenceResponse:
+    return HallucinationConfidenceResponse(
+        status=confidence.status,
+        score=confidence.score,
+        confidence_band=confidence.confidence_band,
+        signal_breakdown=[
+            confidence_component_response(component) for component in confidence.components
+        ],
+        warnings=list(confidence.warnings),
+        rationale=confidence.rationale,
+        signals=[validation_signal_response(signal) for signal in confidence.signals],
+    )
+
+
+def confidence_component_response(
+    component: ConfidenceComponent,
+) -> ConfidenceComponentResponse:
+    return ConfidenceComponentResponse(
+        name=component.name,
+        status=component.status,
+        score=component.score,
+        weight=component.weight,
+        contribution=component.contribution,
+        explanation=component.explanation,
+        signal_codes=list(component.signal_codes),
+        evidence=component.evidence,
+    )
+
+
+def fallback_confidence_summary() -> ConfidenceSummary:
+    return ConfidenceSummary(
+        status="unavailable",
+        score=None,
+        confidence_band="not_applicable",
+        rationale="Confidence scoring did not run.",
+        warnings=("Confidence scoring did not run.",),
     )
 
 
