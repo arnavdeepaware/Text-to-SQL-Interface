@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   QueryFeedbackResponse,
   QueryHistoryResponse,
+  QueryExecutionResponse,
   QueryResponse
 } from "../../types/api";
 
@@ -16,27 +17,33 @@ export const mockHealth: HealthResponse = {
   }
 };
 
-export const mockQueryResponse: QueryResponse = {
+export const mockQueryExecutionResponse: QueryExecutionResponse = {
   result_type: "query_result",
   request_id: "req-test-query",
-  question: "Show order count",
-  sql: "SELECT COUNT(*) AS order_count FROM commerce.orders",
-  explanation: "Counts orders from the read-only commerce schema.",
-  columns: [{ name: "order_count", type_code: "int8" }],
-  rows: [{ order_count: 42 }],
-  row_count: 1,
-  execution_duration_ms: 12,
+  question: "Show gross revenue by product category",
+  sql: "SELECT categories.name AS category_name, SUM(order_items.line_total_cents) AS gross_revenue_cents FROM commerce.order_items JOIN commerce.products ON order_items.product_id = products.product_id JOIN commerce.categories ON products.category_id = categories.category_id GROUP BY categories.name ORDER BY category_name",
+  explanation: "Aggregates line totals by product category from the read-only commerce schema.",
+  columns: [
+    { name: "category_name", type_code: "text" },
+    { name: "gross_revenue_cents", type_code: "int8" }
+  ],
+  rows: [
+    { category_name: "Hardware", gross_revenue_cents: 52500 },
+    { category_name: "Books", gross_revenue_cents: 21000 }
+  ],
+  row_count: 2,
+  execution_duration_ms: 18,
   truncated: false,
   execution_metadata: {
-    row_count: 1,
-    execution_duration_ms: 12,
+    row_count: 2,
+    execution_duration_ms: 18,
     truncated: false
   },
   plan: {
-    estimated_rows: 1,
+    estimated_rows: 2,
     total_cost: 10.2,
-    plan_nodes: ["Aggregate", "Seq Scan"],
-    referenced_relations: ["commerce.orders"]
+    plan_nodes: ["Aggregate", "Hash Join"],
+    referenced_relations: ["commerce.order_items", "commerce.products", "commerce.categories"]
   },
   guardrails: {
     statement_type: "select",
@@ -57,8 +64,8 @@ export const mockQueryResponse: QueryResponse = {
   },
   metadata: {
     model_confidence: 0.72,
-    tables_used: ["commerce.orders"],
-    columns_used: [],
+    tables_used: ["commerce.order_items", "commerce.products", "commerce.categories"],
+    columns_used: ["commerce.categories.name", "commerce.order_items.line_total_cents"],
     assumptions: [],
     telemetry: {
       provider_name: "fake",
@@ -71,6 +78,8 @@ export const mockQueryResponse: QueryResponse = {
     }
   }
 };
+
+export const mockQueryResponse: QueryResponse = mockQueryExecutionResponse;
 
 export const mockSchemaResponse: DatabaseSchemaResponse = {
   schemas: ["commerce"],

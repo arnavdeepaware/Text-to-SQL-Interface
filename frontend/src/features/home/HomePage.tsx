@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "../../api/client";
 import { StatusIndicator } from "../../components/StatusIndicator";
 import type { HealthResponse } from "../../types/api";
+import { QueryWorkspace } from "../query/QueryWorkspace";
 
 type HealthState =
   | { status: "loading"; data: null; error: null }
@@ -43,20 +44,15 @@ export function HomePage() {
 
   return (
     <main className="app-shell">
-      <section className="intro-panel" aria-labelledby="page-title">
-        <p className="eyebrow">Safe Text-to-SQL workspace</p>
-        <h1 id="page-title">Read-only query client foundation</h1>
-        <p>
-          The frontend shell is connected to the backend contracts and ready for the query workflow
-          to be built on top of it.
-        </p>
-      </section>
+      <QueryWorkspace />
 
-      <StatusIndicator
-        health={health.data}
-        isLoading={health.status === "loading"}
-        error={health.error}
-      />
+      <aside className="side-rail" aria-label="Workspace status">
+        <StatusIndicator
+          health={health.data}
+          isLoading={health.status === "loading"}
+          error={health.error}
+        />
+      </aside>
     </main>
   );
 }
