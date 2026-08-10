@@ -2,6 +2,8 @@ import { KeyboardEvent, SyntheticEvent, useMemo, useState } from "react";
 
 import { APIClientError, apiClient } from "../../api/client";
 import type { ClarificationRequiredResponse, QueryExecutionResponse } from "../../types/api";
+import { ConfidencePanel } from "./ConfidencePanel";
+import { FeedbackPanel } from "./FeedbackPanel";
 import { ResultsTable } from "./ResultsTable";
 import { SQLPreview } from "./SQLPreview";
 
@@ -21,6 +23,7 @@ interface BlockedQuery {
   reasons: string[];
   requestId: string | null;
   clarification: ClarificationRequiredResponse | null;
+  originalQuestion: string;
 }
 
 interface FailedQuery {
@@ -46,8 +49,8 @@ export function QueryWorkspace() {
   const hasStaleResult = isLoading && state.latestSuccess !== null;
   const canSubmit = question.trim().length > 0 && !isLoading;
 
-  async function submitQuestion() {
-    const normalizedQuestion = question.trim();
+  async function submitQuestion(overrideQuestion?: string) {
+    const normalizedQuestion = (overrideQuestion ?? question).trim();
     if (normalizedQuestion.length === 0 || isLoading) {
       return;
     }
@@ -66,7 +69,7 @@ export function QueryWorkspace() {
         setState((current) => ({
           status: "blocked",
           latestSuccess: current.latestSuccess,
-          blocked: clarificationToBlockedQuery(response),
+          blocked: clarificationToBlockedQuery(response, normalizedQuestion),
           error: null,
           submittedQuestion: normalizedQuestion
         }));
@@ -85,7 +88,7 @@ export function QueryWorkspace() {
         setState((current) => ({
           status: "blocked",
           latestSuccess: current.latestSuccess,
-          blocked: apiErrorToBlockedQuery(error),
+          blocked: apiErrorToBlockedQuery(error, normalizedQuestion),
           error: null,
           submittedQuestion: normalizedQuestion
         }));
@@ -112,6 +115,10 @@ export function QueryWorkspace() {
       event.preventDefault();
       void submitQuestion();
     }
+  }
+
+  function handleClarificationSelect(clarifiedQuestion: string) {
+    void submitQuestion(clarifiedQuestion);
   }
 
   return (
@@ -159,7 +166,11 @@ export function QueryWorkspace() {
 
       {state.status === "idle" ? <EmptyWorkspace /> : null}
       {state.status === "blocked" && state.blocked !== null ? (
-        <BlockedPanel blocked={state.blocked} />
+        <BlockedPanel
+          blocked={state.blocked}
+          onSelectClarification={handleClarificationSelect}
+          disabled={isLoading}
+        />
       ) : null}
       {state.status === "failed" && state.error !== null ? (
         <ErrorPanel error={state.error} />
@@ -218,6 +229,8 @@ function QueryResultView({ result, stale }: { result: QueryExecutionResponse; st
 
       {warnings.length > 0 ? <WarningsPanel warnings={warnings} /> : null}
 
+      <ConfidencePanel confidence={result.hallucination_confidence} metadata={result.metadata} />
+
       <section className="result-section" aria-labelledby="results-heading">
         <div className="section-heading-row">
           <h3 id="results-heading">Results</h3>
@@ -225,6 +238,8 @@ function QueryResultView({ result, stale }: { result: QueryExecutionResponse; st
         </div>
         <ResultsTable columns={result.columns} rows={result.rows} />
       </section>
+
+      <FeedbackPanel requestId={result.request_id} />
     </article>
   );
 }
@@ -242,7 +257,15 @@ function WarningsPanel({ warnings }: { warnings: string[] }) {
   );
 }
 
-function BlockedPanel({ blocked }: { blocked: BlockedQuery }) {
+function BlockedPanel({
+  blocked,
+  onSelectClarification,
+  disabled
+}: {
+  blocked: BlockedQuery;
+  onSelectClarification: (question: string) => void;
+  disabled: boolean;
+}) {
   return (
     <section className="blocked-panel" aria-labelledby="blocked-heading" role="status">
       <div>
@@ -250,6 +273,9 @@ function BlockedPanel({ blocked }: { blocked: BlockedQuery }) {
         <h2 id="blocked-heading">{blocked.title}</h2>
         <p>{blocked.message}</p>
       </div>
+      <p className="original-question">
+        Original question: <span>{blocked.originalQuestion}</span>
+      </p>
       <div>
         <h3>Blocked reasons</h3>
         <ul>
@@ -266,6 +292,17 @@ function BlockedPanel({ blocked }: { blocked: BlockedQuery }) {
               <li key={option.interpretation}>
                 <strong>{option.interpretation}</strong>
                 <span>{option.example}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectClarification(
+                      clarifiedQuestion(blocked.originalQuestion, option.example)
+                    );
+                  }}
+                  disabled={disabled}
+                >
+                  Use this interpretation
+                </button>
               </li>
             ))}
           </ul>
@@ -315,30 +352,36 @@ function statusText(state: QueryState, hasStaleResult: boolean): string {
 }
 
 function resultWarnings(result: QueryExecutionResponse): string[] {
-  return [
-    ...result.guardrails.findings.map((finding) => `${finding.code}: ${finding.message}`),
-    ...result.hallucination_confidence.warnings
-  ];
+  return result.guardrails.findings.map((finding) => `${finding.code}: ${finding.message}`);
 }
 
-function clarificationToBlockedQuery(response: ClarificationRequiredResponse): BlockedQuery {
+function clarificationToBlockedQuery(
+  response: ClarificationRequiredResponse,
+  originalQuestion: string
+): BlockedQuery {
   return {
     title: "Clarification required",
     message: response.message,
     reasons: ["clarification_required"],
     requestId: response.request_id,
-    clarification: response
+    clarification: response,
+    originalQuestion
   };
 }
 
-function apiErrorToBlockedQuery(error: APIClientError): BlockedQuery {
+function apiErrorToBlockedQuery(error: APIClientError, originalQuestion: string): BlockedQuery {
   return {
     title: "Query blocked before execution",
     message: error.message,
     reasons: [error.code],
     requestId: error.requestId,
-    clarification: null
+    clarification: null,
+    originalQuestion
   };
+}
+
+function clarifiedQuestion(originalQuestion: string, example: string): string {
+  return `${originalQuestion} (${example})`;
 }
 
 function apiErrorToFailedQuery(error: unknown): FailedQuery {

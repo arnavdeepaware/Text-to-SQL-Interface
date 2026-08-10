@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import type {
   DatabaseSchemaResponse,
   HealthResponse,
+  QueryHistoryRecord,
   QueryFeedbackResponse,
   QueryHistoryResponse,
   QueryExecutionResponse,
@@ -57,10 +58,31 @@ export const mockQueryExecutionResponse: QueryExecutionResponse = {
     status: "passed",
     score: 0.91,
     confidence_band: "high",
-    signal_breakdown: [],
-    warnings: [],
+    signal_breakdown: [
+      {
+        name: "schema_coverage",
+        status: "passed",
+        score: 1,
+        weight: 0.2,
+        contribution: 0.2,
+        explanation: "All referenced schema objects were validated.",
+        signal_codes: ["schema_coverage_passed"],
+        evidence: { referenced_tables: ["commerce.order_items"] }
+      }
+    ],
+    warnings: ["Duplicate category joins may amplify revenue if products are duplicated."],
     rationale: "Validation signals passed.",
-    signals: []
+    signals: [
+      {
+        code: "schema_coverage_passed",
+        status: "passed",
+        score: 1,
+        explanation: "Every generated table and column was found in the exposed schema.",
+        evidence: {
+          tables_checked: ["commerce.order_items", "commerce.products", "commerce.categories"]
+        }
+      }
+    ]
   },
   metadata: {
     model_confidence: 0.72,
@@ -80,6 +102,51 @@ export const mockQueryExecutionResponse: QueryExecutionResponse = {
 };
 
 export const mockQueryResponse: QueryResponse = mockQueryExecutionResponse;
+
+export const mockLowConfidenceResponse: QueryExecutionResponse = {
+  ...mockQueryExecutionResponse,
+  request_id: "req-low-confidence",
+  hallucination_confidence: {
+    ...mockQueryExecutionResponse.hallucination_confidence,
+    status: "failed",
+    score: 0.32,
+    confidence_band: "low",
+    rationale: "Validation found weak answer alignment.",
+    warnings: ["Back-translation alignment was weak."],
+    signals: [
+      {
+        code: "answer_alignment_failed",
+        status: "failed",
+        score: 0.2,
+        explanation: "The answer described by the SQL did not closely match the user question.",
+        evidence: { expected_topic: "revenue", generated_topic: "orders" }
+      }
+    ]
+  }
+};
+
+export const mockUnavailableConfidenceResponse: QueryExecutionResponse = {
+  ...mockQueryExecutionResponse,
+  request_id: "req-unavailable-confidence",
+  hallucination_confidence: {
+    status: "unavailable",
+    score: null,
+    confidence_band: "not_applicable",
+    signal_breakdown: [],
+    warnings: ["Semantic alignment provider was unavailable."],
+    rationale: "Some validation evidence was unavailable.",
+    signals: [
+      {
+        code: "semantic_alignment_unavailable",
+        status: "unavailable",
+        score: 0,
+        explanation:
+          "The semantic alignment check did not run because its provider was unavailable.",
+        evidence: { provider: "fake-alignment", retryable: true }
+      }
+    ]
+  }
+};
 
 export const mockSchemaResponse: DatabaseSchemaResponse = {
   schemas: ["commerce"],
@@ -111,11 +178,26 @@ export const mockSchemaResponse: DatabaseSchemaResponse = {
   }
 };
 
+const mockHistoryRecord: QueryHistoryRecord = {
+  id: 10,
+  request_id: "req-test-query",
+  normalized_question: "Show gross revenue by product category",
+  generated_sql: mockQueryExecutionResponse.sql,
+  outcome: "success",
+  blocked_reasons: [],
+  execution_metadata: { row_count: 2, execution_duration_ms: 18, truncated: false },
+  confidence_breakdown: { confidence_band: "high", score: 0.91 },
+  provider_metadata: { provider_name: "fake" },
+  created_at: "2026-08-10T00:00:00Z",
+  updated_at: "2026-08-10T00:00:00Z",
+  feedback: []
+};
+
 export const mockHistoryResponse: QueryHistoryResponse = {
-  records: [],
+  records: [mockHistoryRecord],
   limit: 25,
   offset: 0,
-  total: 0,
+  total: 1,
   retention_policy: {
     status: "placeholder",
     query_history_retention_days: 30,

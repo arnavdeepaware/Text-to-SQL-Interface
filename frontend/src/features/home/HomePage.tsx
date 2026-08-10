@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "../../api/client";
 import { StatusIndicator } from "../../components/StatusIndicator";
 import type { HealthResponse } from "../../types/api";
+import { HistoryPanel } from "../query/HistoryPanel";
 import { QueryWorkspace } from "../query/QueryWorkspace";
 
 type HealthState =
@@ -52,6 +53,7 @@ export function HomePage() {
           isLoading={health.status === "loading"}
           error={health.error}
         />
+        <HistoryPanel />
       </aside>
     </main>
   );

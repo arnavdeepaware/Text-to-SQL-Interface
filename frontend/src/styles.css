@@ -307,6 +307,244 @@ textarea:focus-visible {
   background: #fff8e6;
 }
 
+.confidence-panel,
+.feedback-panel,
+.history-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d6deeb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfcfe;
+}
+
+.confidence-summary {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.confidence-summary h3,
+.feedback-panel h3,
+.history-panel h2 {
+  margin: 0;
+  color: #172033;
+}
+
+.confidence-summary p,
+.model-confidence-note,
+.signal-details p,
+.history-note {
+  margin: 8px 0 0;
+  color: #46566f;
+  line-height: 1.5;
+}
+
+.confidence-band,
+.signal-status,
+.history-outcome {
+  width: fit-content;
+  border: 1px solid #d6deeb;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.confidence-band--high,
+.signal-status--passed,
+.history-outcome--success {
+  border-color: #a8dec3;
+  color: #17613a;
+  background: #eaf8f0;
+}
+
+.confidence-band--medium,
+.confidence-band--low,
+.signal-status--failed,
+.history-outcome--blocked,
+.history-outcome--clarification_required {
+  border-color: #f0cd86;
+  color: #7a4c00;
+  background: #fff6df;
+}
+
+.confidence-band--blocked,
+.signal-status--unavailable,
+.signal-status--not_applicable,
+.confidence-band--not_applicable,
+.history-outcome--failed {
+  border-color: #d6deeb;
+  color: #46566f;
+  background: #eef2f7;
+}
+
+.confidence-warning-list {
+  border-left: 3px solid #f0cd86;
+  padding-left: 12px;
+}
+
+.confidence-warning-list h4 {
+  margin: 0 0 8px;
+}
+
+.confidence-warning-list ul,
+.signal-details ul,
+.history-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.signal-details summary {
+  cursor: pointer;
+  color: #172033;
+  font-weight: 800;
+}
+
+.signal-details li {
+  border-top: 1px solid #e2e8f2;
+  padding-top: 12px;
+}
+
+.signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.signal-details pre {
+  overflow-x: auto;
+  margin: 8px 0 0;
+  border: 1px solid #e2e8f2;
+  border-radius: 8px;
+  padding: 10px;
+  color: #172033;
+  background: #ffffff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.feedback-panel form {
+  display: grid;
+  gap: 12px;
+}
+
+.feedback-panel fieldset {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.feedback-panel legend,
+.feedback-panel label {
+  color: #172033;
+  font-weight: 700;
+}
+
+.rating-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rating-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d6deeb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.feedback-panel textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #bac6d8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.feedback-actions,
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.feedback-actions button,
+.history-panel button,
+.blocked-panel button {
+  border: 1px solid #c8d2e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #172033;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.feedback-actions button:not(:disabled):hover,
+.history-panel button:not(:disabled):hover,
+.blocked-panel button:not(:disabled):hover {
+  border-color: #1f6feb;
+}
+
+.feedback-message {
+  margin: 0;
+  color: #17613a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.feedback-message--error,
+.history-error {
+  color: #9f2f2f;
+}
+
+.history-panel {
+  background: #ffffff;
+}
+
+.history-header {
+  align-items: start;
+}
+
+.history-header .eyebrow {
+  margin-bottom: 6px;
+}
+
+.history-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.history-list li {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e7ecf4;
+  padding-top: 10px;
+}
+
+.history-list strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.history-list li > span:last-child {
+  color: #617089;
+  font-size: 12px;
+}
+
 .warning-panel ul,
 .blocked-panel ul {
   display: grid;
@@ -402,6 +640,21 @@ tbody tr:last-child td {
   display: block;
   color: #617089;
   font-size: 14px;
+}
+
+.blocked-panel li button {
+  display: block;
+  margin-top: 8px;
+}
+
+.original-question {
+  border-left: 3px solid #d6deeb;
+  padding-left: 12px;
+}
+
+.original-question span {
+  color: #172033;
+  font-weight: 800;
 }
 
 .error-panel {
