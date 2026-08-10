@@ -47,7 +47,7 @@ export function HomePage() {
     <main className="app-shell">
       <QueryWorkspace />
 
-      <aside className="side-rail" aria-label="Workspace status">
+      <aside className="side-rail" aria-label="Workspace support panels">
         <StatusIndicator
           health={health.data}
           isLoading={health.status === "loading"}

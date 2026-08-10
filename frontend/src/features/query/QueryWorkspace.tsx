@@ -121,8 +121,14 @@ export function QueryWorkspace() {
     void submitQuestion(clarifiedQuestion);
   }
 
+  function handleRetry() {
+    if (state.submittedQuestion !== null) {
+      void submitQuestion(state.submittedQuestion);
+    }
+  }
+
   return (
-    <section className="workspace" aria-labelledby="workspace-title">
+    <section className="workspace" aria-labelledby="workspace-title" aria-busy={isLoading}>
       <div className="workspace-header">
         <div>
           <p className="eyebrow">Query workspace</p>
@@ -145,11 +151,15 @@ export function QueryWorkspace() {
           onKeyDown={handleQuestionKeyDown}
           placeholder="Show gross revenue by product category"
           rows={4}
-          aria-describedby="question-status"
+          aria-describedby="question-help question-status"
           aria-keyshortcuts="Control+Enter Meta+Enter"
         />
+        <p id="question-help" className="visually-hidden">
+          Submit the question with the Submit button, or press Control Enter on Windows and Linux or
+          Command Enter on macOS.
+        </p>
         <div className="query-form-footer">
-          <p id="question-status" aria-live="polite">
+          <p id="question-status" role="status" aria-live="polite" aria-atomic="true">
             {statusText(state, hasStaleResult)}
           </p>
           <button type="submit" disabled={!canSubmit}>
@@ -158,8 +168,10 @@ export function QueryWorkspace() {
         </div>
       </form>
 
+      {isLoading && state.latestSuccess === null ? <LoadingWorkspace /> : null}
+
       {hasStaleResult ? (
-        <div className="stale-banner" role="status">
+        <div className="stale-banner" role="status" aria-live="polite">
           Showing the previous successful result while the new request runs.
         </div>
       ) : null}
@@ -173,7 +185,11 @@ export function QueryWorkspace() {
         />
       ) : null}
       {state.status === "failed" && state.error !== null ? (
-        <ErrorPanel error={state.error} />
+        <ErrorPanel
+          error={state.error}
+          onRetry={handleRetry}
+          canRetry={state.submittedQuestion !== null && !isLoading}
+        />
       ) : null}
       {state.latestSuccess !== null ? (
         <QueryResultView result={state.latestSuccess} stale={hasStaleResult} />
@@ -187,6 +203,28 @@ function EmptyWorkspace() {
     <div className="empty-state">
       <h2>No query has run yet</h2>
       <p>Submit a question to review generated SQL, validation details, and tabular results.</p>
+    </div>
+  );
+}
+
+function LoadingWorkspace() {
+  return (
+    <div className="loading-panel" role="status" aria-live="polite" aria-label="Loading query">
+      <span className="visually-hidden">Running query.</span>
+      <div className="loading-panel__header">
+        <span className="skeleton skeleton--title" />
+        <span className="skeleton skeleton--metric" />
+      </div>
+      <span className="skeleton skeleton--line" />
+      <span className="skeleton skeleton--line skeleton--short" />
+      <div className="skeleton-table" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
     </div>
   );
 }
@@ -288,23 +326,28 @@ function BlockedPanel({
         <div>
           <h3>Clarification options</h3>
           <ul>
-            {blocked.clarification.clarification_options.map((option) => (
-              <li key={option.interpretation}>
-                <strong>{option.interpretation}</strong>
-                <span>{option.example}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectClarification(
-                      clarifiedQuestion(blocked.originalQuestion, option.example)
-                    );
-                  }}
-                  disabled={disabled}
-                >
-                  Use this interpretation
-                </button>
-              </li>
-            ))}
+            {blocked.clarification.clarification_options.map((option, index) => {
+              const optionId = `clarification-option-${String(index)}`;
+
+              return (
+                <li key={option.interpretation}>
+                  <strong id={optionId}>{option.interpretation}</strong>
+                  <span>{option.example}</span>
+                  <button
+                    type="button"
+                    aria-describedby={optionId}
+                    onClick={() => {
+                      onSelectClarification(
+                        clarifiedQuestion(blocked.originalQuestion, option.example)
+                      );
+                    }}
+                    disabled={disabled}
+                  >
+                    Use this interpretation
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -315,12 +358,23 @@ function BlockedPanel({
   );
 }
 
-function ErrorPanel({ error }: { error: FailedQuery }) {
+function ErrorPanel({
+  error,
+  onRetry,
+  canRetry
+}: {
+  error: FailedQuery;
+  onRetry: () => void;
+  canRetry: boolean;
+}) {
   return (
     <section className="error-panel" aria-labelledby="error-heading" role="alert">
       <p className="eyebrow">Request failed</p>
       <h2 id="error-heading">{error.title}</h2>
       <p>{error.message}</p>
+      <button type="button" onClick={onRetry} disabled={!canRetry}>
+        Retry request
+      </button>
       {error.code !== null ? <p className="request-id">Code {error.code}</p> : null}
       {error.requestId !== null ? <p className="request-id">Request {error.requestId}</p> : null}
     </section>

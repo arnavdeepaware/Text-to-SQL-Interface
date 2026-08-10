@@ -70,7 +70,13 @@ export function HistoryPanel() {
         </button>
       </div>
 
-      {state.status === "loading" ? <p className="history-note">Loading history.</p> : null}
+      {state.status === "loading" ? (
+        <div className="history-loading" role="status" aria-live="polite">
+          <span className="visually-hidden">Loading query history.</span>
+          <span className="skeleton skeleton--line" />
+          <span className="skeleton skeleton--line skeleton--short" />
+        </div>
+      ) : null}
       {state.status === "failed" && state.error !== null ? (
         <p className="history-error" role="alert">
           {state.error}

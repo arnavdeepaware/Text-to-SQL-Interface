@@ -11,12 +11,12 @@ export function StatusIndicator({ health, isLoading, error }: StatusIndicatorPro
   const tone = error === null && health?.status === "ok" ? "ok" : "degraded";
 
   return (
-    <section className="status-card" aria-labelledby="status-heading">
+    <section className="status-card" aria-labelledby="status-heading" aria-busy={isLoading}>
       <div>
         <p className="eyebrow">Backend status</p>
         <h2 id="status-heading">{status}</h2>
       </div>
-      <span className={`status-pill status-pill--${tone}`} aria-live="polite">
+      <span className={`status-pill status-pill--${tone}`} role="status" aria-live="polite">
         {isLoading ? "Checking" : (health?.status ?? "Unavailable")}
       </span>
       {health !== null ? (

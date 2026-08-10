@@ -27,19 +27,20 @@ export function ResultsTable({ columns, rows }: ResultsTableProps) {
   }
 
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" role="region" tabIndex={0} aria-label="Scrollable query results">
       <table>
+        <caption>Query result rows</caption>
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.name} scope="col">
+              <th key={column.name} scope="col" aria-sort={ariaSort(sort, column.name)}>
                 <button
                   type="button"
                   className="sort-button"
+                  aria-label={sortLabel(sort, column.name)}
                   onClick={() => {
                     setSort(nextSort(sort, column.name));
                   }}
-                  aria-sort={ariaSort(sort, column.name)}
                 >
                   <span>{column.name}</span>
                   <span aria-hidden="true">{sortIndicator(sort, column.name)}</span>
@@ -133,6 +134,14 @@ function sortIndicator(sort: SortState | null, column: string): string {
   }
 
   return sort.direction === "asc" ? "Asc" : "Desc";
+}
+
+function sortLabel(sort: SortState | null, column: string): string {
+  if (sort?.column === column && sort.direction === "asc") {
+    return `Sort ${column} descending`;
+  }
+
+  return `Sort ${column} ascending`;
 }
 
 function rowKey(row: Record<string, unknown>, rowIndex: number): string {

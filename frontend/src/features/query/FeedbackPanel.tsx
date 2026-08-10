@@ -1,4 +1,4 @@
-import { SyntheticEvent, useState } from "react";
+import { SyntheticEvent, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
 import type { FeedbackRating } from "../../types/api";
@@ -14,6 +14,7 @@ export function FeedbackPanel({ requestId }: FeedbackPanelProps) {
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<FeedbackStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const submissionLockedRef = useRef(false);
 
   const isLocked = status === "submitting" || status === "success";
   const canSubmit = rating !== null && !isLocked;
@@ -28,6 +29,11 @@ export function FeedbackPanel({ requestId }: FeedbackPanelProps) {
   }
 
   async function submitFeedback(selectedRating: FeedbackRating) {
+    if (submissionLockedRef.current) {
+      return;
+    }
+
+    submissionLockedRef.current = true;
     setStatus("submitting");
     setMessage(null);
 
@@ -40,6 +46,7 @@ export function FeedbackPanel({ requestId }: FeedbackPanelProps) {
       setStatus("success");
       setMessage("Feedback recorded.");
     } catch (error) {
+      submissionLockedRef.current = false;
       setStatus("failed");
       setMessage(error instanceof Error ? error.message : "Feedback could not be recorded.");
     }

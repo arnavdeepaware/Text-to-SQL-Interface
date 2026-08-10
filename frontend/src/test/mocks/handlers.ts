@@ -125,6 +125,27 @@ export const mockLowConfidenceResponse: QueryExecutionResponse = {
   }
 };
 
+export const mockMediumConfidenceResponse: QueryExecutionResponse = {
+  ...mockQueryExecutionResponse,
+  request_id: "req-medium-confidence",
+  hallucination_confidence: {
+    ...mockQueryExecutionResponse.hallucination_confidence,
+    score: 0.67,
+    confidence_band: "medium",
+    rationale: "Most validation signals passed with one caution.",
+    warnings: ["Result sanity check found a small sample size."],
+    signals: [
+      {
+        code: "result_sanity_caution",
+        status: "passed",
+        score: 0.65,
+        explanation: "The query returned plausible rows, but the result set is small.",
+        evidence: { rows_returned: 2, expected_minimum_rows: 5 }
+      }
+    ]
+  }
+};
+
 export const mockUnavailableConfidenceResponse: QueryExecutionResponse = {
   ...mockQueryExecutionResponse,
   request_id: "req-unavailable-confidence",
