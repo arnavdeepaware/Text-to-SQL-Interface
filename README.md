@@ -14,7 +14,7 @@ The root-level Python prototype is existing exploratory work; the planned implem
 
 ## Status
 
-Phase 4 (query history, feedback, and privacy) is complete. The next phase is frontend result presentation and release hardening. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Phase 5 (evaluation and hardening) is in progress. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Setup
 
@@ -38,6 +38,39 @@ make db-smoke
 ```
 
 The backend reads `TEXT_TO_SQL_DATABASE_*` variables and defaults to the local Docker read-only role. Keep real overrides in `.env`; `.env.example` lists variable names only.
+
+## Full stack
+
+Start the complete deterministic demo stack with one command:
+
+```bash
+docker compose up --build
+```
+
+Or run it in the background and wait for all service healthchecks:
+
+```bash
+make stack-up
+make stack-smoke
+```
+
+The frontend is available at `http://localhost:8080`; it proxies API requests to the backend. The
+backend connects to PostgreSQL with the read-only query role and a separate, restricted audit-writer
+role. PostgreSQL owner credentials remain inside the database service for initialization only.
+
+Useful local commands:
+
+```bash
+make stack-logs       # follow PostgreSQL, backend, and frontend logs
+make stack-down       # stop services and retain the seeded volume
+make stack-reset      # remove the volume, rebuild, and reseed deterministically
+```
+
+If startup remains unhealthy, inspect `make stack-logs`; a stale volume may have been initialized
+with older role credentials, in which case use `make stack-reset`. The default fake demo provider
+does not make network calls. To use a live provider, explicitly set
+`TEXT_TO_SQL_SQL_GENERATION_PROVIDER=openai` and `TEXT_TO_SQL_OPENAI_API_KEY` in an untracked
+`.env` file; no API key is included in an image or tracked configuration.
 
 ## Development
 

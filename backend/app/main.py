@@ -18,7 +18,12 @@ from app.db.engine import (
     create_audit_database_engine,
     create_database_engine,
 )
-from app.db.lifecycle import EngineFactory, database_lifespan, get_database_engine
+from app.db.lifecycle import (
+    EngineFactory,
+    database_lifespan,
+    get_audit_database_engine,
+    get_database_engine,
+)
 from app.repositories.query_history import NoopQueryHistoryRepository, QueryHistoryRepository
 from app.services.query_execution import QueryExecutionService
 from app.services.query_history import QueryHistoryService
@@ -42,6 +47,7 @@ def create_app(
     engine_factory: EngineFactory = create_database_engine,
     audit_engine_factory: EngineFactory | None = None,
     database_check: DatabaseCheck = check_database_connection,
+    audit_database_check: DatabaseCheck | None = None,
     schema_catalog_factory: SchemaCatalogFactory | None = None,
     sql_generator_factory: SQLGeneratorFactory | None = None,
     query_executor_factory: QueryExecutorFactory | None = None,
@@ -105,17 +111,41 @@ def create_app(
         )
     )
 
-    @app.get("/health", response_model=HealthResponse)
-    async def health() -> HealthResponse:
+    def health_response(include_audit: bool) -> HealthResponse:
         database_ok = database_check(get_database_engine(app))
-        database_status: Literal["ok", "unavailable"] = "ok" if database_ok else "unavailable"
-        app_status: Literal["ok", "degraded"] = "ok" if database_ok else "degraded"
+        checks = {"database": ComponentHealth(status="ok" if database_ok else "unavailable")}
+        audit_ok = True
+        if include_audit and settings.query_history_enabled:
+            check = audit_database_check or database_check
+            audit_ok = check(get_audit_database_engine(app))
+            checks["audit"] = ComponentHealth(status="ok" if audit_ok else "unavailable")
+        app_status: Literal["ok", "degraded"] = "ok" if database_ok and audit_ok else "degraded"
 
         return HealthResponse(
             status=app_status,
             version=settings.app_version,
-            checks={"database": ComponentHealth(status=database_status)},
+            checks=checks,
         )
+
+    @app.get("/live")
+    async def live() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return health_response(include_audit=False)
+
+    @app.get("/ready", response_model=HealthResponse)
+    async def ready() -> HealthResponse:
+        response = health_response(include_audit=True)
+        if response.status != "ok":
+            from fastapi import HTTPException, status
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=response.model_dump(),
+            )
+        return response
 
     return app
 

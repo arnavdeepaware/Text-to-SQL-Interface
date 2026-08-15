@@ -53,6 +53,26 @@ async def test_health_endpoint_is_stable_when_database_is_unavailable() -> None:
     }
 
 
+async def test_readiness_requires_database_and_audit_storage() -> None:
+    mock_engine = Mock(spec=Engine)
+    app = create_app(
+        settings=Settings(environment="test"),
+        engine_factory=lambda settings: cast(Engine, mock_engine),
+        database_check=lambda engine: True,
+        audit_database_check=lambda engine: False,
+    )
+    transport = ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            live = await client.get("/live")
+            ready = await client.get("/ready")
+
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
+    assert ready.status_code == 503
+
+
 async def test_application_lifespan_disposes_database_engine() -> None:
     mock_engine = Mock(spec=Engine)
     app = create_app(

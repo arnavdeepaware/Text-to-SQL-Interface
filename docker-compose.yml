@@ -7,17 +7,79 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-text_to_sql_local_password}
       APP_DB_READONLY_USER: ${APP_DB_READONLY_USER:-text_to_sql_reader}
       APP_DB_READONLY_PASSWORD: ${APP_DB_READONLY_PASSWORD:-text_to_sql_reader_local_password}
+      APP_DB_AUDIT_USER: ${APP_DB_AUDIT_USER:-text_to_sql_audit_writer}
+      APP_DB_AUDIT_PASSWORD: ${APP_DB_AUDIT_PASSWORD:-text_to_sql_audit_writer_local_password}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
+      - ./database/healthcheck.sh:/usr/local/bin/text-to-sql-healthcheck:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test: ["CMD-SHELL", "/usr/local/bin/text-to-sql-healthcheck"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 12
+      start_period: 15s
+    stop_grace_period: 30s
+    mem_limit: 512m
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    environment:
+      TEXT_TO_SQL_ENVIRONMENT: ${TEXT_TO_SQL_ENVIRONMENT:-development}
+      TEXT_TO_SQL_LOG_LEVEL: ${TEXT_TO_SQL_LOG_LEVEL:-INFO}
+      TEXT_TO_SQL_DATABASE_HOST: postgres
+      TEXT_TO_SQL_DATABASE_PORT: 5432
+      TEXT_TO_SQL_DATABASE_NAME: ${POSTGRES_DB:-text_to_sql}
+      TEXT_TO_SQL_DATABASE_USER: ${APP_DB_READONLY_USER:-text_to_sql_reader}
+      TEXT_TO_SQL_DATABASE_PASSWORD: ${APP_DB_READONLY_PASSWORD:-text_to_sql_reader_local_password}
+      TEXT_TO_SQL_AUDIT_DATABASE_USER: ${APP_DB_AUDIT_USER:-text_to_sql_audit_writer}
+      TEXT_TO_SQL_AUDIT_DATABASE_PASSWORD: ${APP_DB_AUDIT_PASSWORD:-text_to_sql_audit_writer_local_password}
+      TEXT_TO_SQL_DATABASE_CONNECT_TIMEOUT_SECONDS: ${TEXT_TO_SQL_DATABASE_CONNECT_TIMEOUT_SECONDS:-3}
+      TEXT_TO_SQL_DATABASE_STATEMENT_TIMEOUT_MS: ${TEXT_TO_SQL_DATABASE_STATEMENT_TIMEOUT_MS:-5000}
+      TEXT_TO_SQL_DATABASE_POOL_SIZE: ${TEXT_TO_SQL_DATABASE_POOL_SIZE:-5}
+      TEXT_TO_SQL_DATABASE_MAX_OVERFLOW: ${TEXT_TO_SQL_DATABASE_MAX_OVERFLOW:-0}
+      TEXT_TO_SQL_SQL_GENERATION_PROVIDER: ${TEXT_TO_SQL_SQL_GENERATION_PROVIDER:-fake}
+      TEXT_TO_SQL_SQL_GENERATION_FAKE_PROFILE: ${TEXT_TO_SQL_SQL_GENERATION_FAKE_PROFILE:-demo}
+      TEXT_TO_SQL_OPENAI_API_KEY: ${TEXT_TO_SQL_OPENAI_API_KEY:-}
+      TEXT_TO_SQL_CONFIDENCE_SEMANTIC_ENABLED: "false"
+      TEXT_TO_SQL_CONFIDENCE_MULTI_QUERY_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; response = urlopen('http://127.0.0.1:8000/ready', timeout=2); assert response.status == 200"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
       start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 15s
+    mem_limit: 512m
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 10s
+    mem_limit: 128m
 
 volumes:
   postgres_data:

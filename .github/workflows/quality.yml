@@ -19,6 +19,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -27,6 +34,9 @@ jobs:
 
       - name: Install backend dependencies
         run: make backend-install
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
 
       - name: Validate Docker Compose
         run: make compose-check
@@ -49,6 +59,18 @@ jobs:
       - name: Run deterministic evaluation suite
         run: make eval-run
 
+      - name: Build and start the full stack
+        run: make stack-reset
+
+      - name: Run deterministic full-stack smoke test
+        run: make stack-smoke
+
+      - name: Collect container diagnostics
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --timestamps postgres backend frontend
+
       - name: Stop PostgreSQL service
         if: always()
-        run: make db-down
+        run: docker compose down --volumes --remove-orphans

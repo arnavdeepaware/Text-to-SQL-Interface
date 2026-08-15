@@ -5,6 +5,7 @@ service_name="${POSTGRES_SERVICE:-postgres}"
 database_name="${POSTGRES_DB:-text_to_sql}"
 owner_user="${POSTGRES_USER:-text_to_sql_owner}"
 readonly_user="${APP_DB_READONLY_USER:-text_to_sql_reader}"
+audit_user="${APP_DB_AUDIT_USER:-text_to_sql_audit_writer}"
 
 compose() {
   docker compose "$@"
@@ -35,11 +36,26 @@ assert_eq() {
   echo "OK: $label = $actual"
 }
 
+assert_nonnegative_integer() {
+  actual="$1"
+  label="$2"
+
+  case "$actual" in
+    (''|*[!0-9]*)
+      echo "FAIL: $label expected a nonnegative integer, got $actual" >&2
+      exit 1
+      ;;
+  esac
+
+  echo "OK: $label = $actual"
+}
+
 echo "Checking PostgreSQL health..."
 compose exec -T "$service_name" pg_isready --username "$owner_user" --dbname "$database_name"
 
 echo "Bootstrapping read-only application role..."
 ./scripts/bootstrap-readonly-role.sh
+./scripts/bootstrap-audit-role.sh
 
 echo "Checking tables..."
 table_count="$(
@@ -114,5 +130,22 @@ assert_readonly_denied "CREATE TABLE" "CREATE TABLE commerce.forbidden_write (id
 assert_readonly_denied "CREATE TEMP TABLE" "CREATE TEMP TABLE forbidden_temp (id integer);"
 assert_readonly_denied "DROP TABLE" "DROP TABLE commerce.orders;"
 assert_readonly_denied "GRANT" "GRANT SELECT ON commerce.orders TO ${readonly_user};"
+
+echo "Checking audit writer separation..."
+assert_nonnegative_integer "$(
+  compose exec -T "$service_name" psql --username "$audit_user" --dbname "$database_name" \
+    --tuples-only --no-align --command "SELECT count(*) FROM text_to_sql_audit.query_audit_records;"
+)" "audit writer can read audit history"
+
+set +e
+compose exec -T "$service_name" psql --username "$audit_user" --dbname "$database_name" \
+  --command "SELECT * FROM commerce.orders;" >/dev/null 2>&1
+audit_commerce_status="$?"
+set -e
+if [ "$audit_commerce_status" -eq 0 ]; then
+  echo "FAIL: audit writer unexpectedly read commerce data" >&2
+  exit 1
+fi
+echo "OK: audit writer denied commerce data"
 
 echo "Database smoke test passed."

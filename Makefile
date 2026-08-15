@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration frontend-install frontend-dev frontend-test frontend-lint frontend-build frontend-check compose-check db-up db-down db-reset db-smoke eval-validate eval-run check
+.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration frontend-install frontend-dev frontend-test frontend-lint frontend-build frontend-check compose-check db-up db-down db-reset db-smoke stack-up stack-down stack-reset stack-logs stack-smoke eval-validate eval-run check
 
 UV ?= $(shell command -v uv >/dev/null 2>&1 && printf uv || printf 'python3 -m uv')
 
@@ -45,6 +45,23 @@ frontend-check:
 compose-check:
 	docker compose config -q
 
+stack-up:
+	docker compose up -d --build --wait
+
+stack-down:
+	docker compose down
+
+stack-reset:
+	docker compose down --volumes --remove-orphans
+	docker compose up -d --build --wait
+
+stack-logs:
+	docker compose logs --follow --tail=200
+
+stack-smoke:
+	docker compose up -d --wait --no-build
+	docker compose exec -T backend python -m app.cli.full_stack_smoke
+
 db-up:
 	docker compose up -d --wait postgres
 
@@ -64,4 +81,4 @@ eval-validate:
 eval-run:
 	$(UV) --directory backend run python -m app.cli.evaluate --dataset ../evals/cases/text_to_sql_v1.json --reports ../evals/reports --provider fake
 
-check: compose-check backend-check eval-validate db-up db-smoke backend-integration-test eval-run
+check: compose-check backend-check frontend-check eval-validate db-up db-smoke backend-integration-test eval-run

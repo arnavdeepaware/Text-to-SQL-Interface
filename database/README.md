@@ -12,6 +12,8 @@ docker compose ps
 ```
 
 The Compose service uses PostgreSQL 16 and mounts `database/init/` into the standard first-run initialization directory. Init files run only when the named Docker volume is fresh.
+It creates separate local roles for generated read-only queries and backend audit history; the
+PostgreSQL owner remains an initialization-only credential.
 
 ## Smoke test
 
