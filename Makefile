@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration frontend-install frontend-dev frontend-test frontend-lint frontend-build frontend-check compose-check db-up db-down db-reset db-smoke check
+.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration frontend-install frontend-dev frontend-test frontend-lint frontend-build frontend-check compose-check db-up db-down db-reset db-smoke eval-validate eval-run check
 
 UV ?= $(shell command -v uv >/dev/null 2>&1 && printf uv || printf 'python3 -m uv')
 
@@ -58,4 +58,10 @@ db-reset:
 db-smoke:
 	./scripts/database-smoke-test.sh
 
-check: compose-check backend-check db-up db-smoke backend-integration-test
+eval-validate:
+	$(UV) --directory backend run python -m app.cli.evaluate --dataset ../evals/cases/text_to_sql_v1.json --reports ../evals/reports --validate-only
+
+eval-run:
+	$(UV) --directory backend run python -m app.cli.evaluate --dataset ../evals/cases/text_to_sql_v1.json --reports ../evals/reports --provider fake
+
+check: compose-check backend-check eval-validate db-up db-smoke backend-integration-test eval-run

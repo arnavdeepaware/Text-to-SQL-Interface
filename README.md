@@ -114,7 +114,19 @@ make db-down
 
 ## Evaluation
 
-Placeholder — curated cases and evaluation reports will live under `evals/`.
+The versioned seeded-commerce suite lives at `evals/cases/text_to_sql_v1.json`. It uses a
+deterministic scripted fake generator by default, runs through the normal guardrail and read-only
+execution path, and writes transient JSON and Markdown reports to `evals/reports/`.
+
+```bash
+make eval-validate
+make db-up
+make eval-run
+```
+
+SQL exact match is reported as a diagnostic. Result matching against the seeded database is the
+primary correctness metric for executable cases. Live evaluation is intentionally not a Make target;
+it requires `--provider openai --allow-live` and `TEXT_TO_SQL_EVAL_ALLOW_LIVE=true`.
 
 ## Security
 

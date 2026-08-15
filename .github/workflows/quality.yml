@@ -34,6 +34,9 @@ jobs:
       - name: Run backend unit quality checks
         run: make backend-check
 
+      - name: Validate evaluation cases
+        run: make eval-validate
+
       - name: Start PostgreSQL service
         run: make db-up
 
@@ -42,6 +45,9 @@ jobs:
 
       - name: Run backend integration tests
         run: make backend-integration-test
+
+      - name: Run deterministic evaluation suite
+        run: make eval-run
 
       - name: Stop PostgreSQL service
         if: always()

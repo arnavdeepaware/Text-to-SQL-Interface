@@ -25,6 +25,7 @@ build/
 *.sqlite3
 evals/reports/*.json
 evals/reports/*.html
+evals/reports/*.md
 
 # OS and editor files
 .DS_Store
