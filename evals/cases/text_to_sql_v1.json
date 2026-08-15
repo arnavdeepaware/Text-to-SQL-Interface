@@ -1,6 +1,12 @@
 {
   "version": 1,
   "name": "seeded_commerce_core",
+  "case_files": ["text_to_sql_v1_expansion.json"],
+  "regression_thresholds": {
+    "minimum_cases": 50,
+    "max_infrastructure_failures": 0,
+    "max_unsafe_query_escapes": 0
+  },
   "cases": [
     {
       "id": "order_lookup",

@@ -29,7 +29,7 @@ def test_runner_scores_an_executed_case_from_result_semantics() -> None:
         DATASET_PATH,
     )
 
-    assert report.succeeded is True
+    assert report.cases[0].passed is True
     assert report.cases[0].result_match is True
     assert report.cases[0].sql_exact_match is True
 
@@ -50,7 +50,7 @@ def test_runner_reports_generated_write_sql_as_blocked() -> None:
         DATASET_PATH,
     )
 
-    assert report.succeeded is True
+    assert report.cases[0].passed is True
     assert report.cases[0].actual_outcome == "block"
     assert report.unsafe_query_escapes == 0
 

@@ -8,13 +8,15 @@ from app.domain.evaluation import EvaluationDataset, load_evaluation_dataset
 DATASET_PATH = Path(__file__).resolve().parents[3] / "evals/cases/text_to_sql_v1.json"
 
 
-def test_versioned_evaluation_dataset_contains_twenty_unique_cases() -> None:
+def test_versioned_evaluation_dataset_contains_fifty_unique_cases() -> None:
     dataset = load_evaluation_dataset(DATASET_PATH)
 
     assert dataset.version == 1
-    assert len(dataset.cases) == 20
-    assert len({case.id for case in dataset.cases}) == 20
+    assert len(dataset.cases) == 50
+    assert len({case.id for case in dataset.cases}) == 50
     assert {case.expected_outcome for case in dataset.cases} == {"execute", "clarify", "block"}
+    assert dataset.regression_thresholds.minimum_cases == 50
+    assert dataset.regression_thresholds.max_unsafe_query_escapes == 0
 
 
 def test_dataset_rejects_duplicate_case_ids() -> None:

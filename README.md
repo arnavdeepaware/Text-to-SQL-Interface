@@ -114,9 +114,11 @@ make db-down
 
 ## Evaluation
 
-The versioned seeded-commerce suite lives at `evals/cases/text_to_sql_v1.json`. It uses a
+The versioned seeded-commerce suite has 50 distinct cases across execution, ambiguity,
+unsupported-question, malformed-request, guardrail, and hallucination scenarios. It uses a
 deterministic scripted fake generator by default, runs through the normal guardrail and read-only
-execution path, and writes transient JSON and Markdown reports to `evals/reports/`.
+execution path, and writes transient JSON plus a concise portfolio-summary Markdown report to
+`evals/reports/`.
 
 ```bash
 make eval-validate
@@ -125,8 +127,10 @@ make eval-run
 ```
 
 SQL exact match is reported as a diagnostic. Result matching against the seeded database is the
-primary correctness metric for executable cases. Live evaluation is intentionally not a Make target;
-it requires `--provider openai --allow-live` and `TEXT_TO_SQL_EVAL_ALLOW_LIVE=true`.
+primary correctness metric for executable cases; the report also covers ambiguity and unsupported
+question handling, label-backed hallucination precision/recall, guardrail effectiveness, and unsafe
+query escapes. Live evaluation is intentionally not a Make target; it requires `--provider openai
+--allow-live` and `TEXT_TO_SQL_EVAL_ALLOW_LIVE=true`.
 
 ## Security
 
