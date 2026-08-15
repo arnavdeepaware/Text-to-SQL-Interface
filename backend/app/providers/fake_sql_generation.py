@@ -25,6 +25,7 @@ class FakeSQLGenerator:
     input_tokens: int | None = 111
     output_tokens: int | None = 33
     retry_count: int = 0
+    profile: str = "placeholder"
 
     def generate(self, prompt: SQLGenerationPrompt) -> SQLGenerationDraft:
         if self.mode == "timeout":
@@ -40,7 +41,7 @@ class FakeSQLGenerator:
         if self.mode != "success":
             raise ValueError(f"Unsupported fake SQL generation mode: {self.mode}")
 
-        result = self.result or default_fake_result(prompt)
+        result = self.result or default_fake_result(prompt, profile=self.profile)
         return SQLGenerationDraft(
             result=result,
             telemetry=SQLGenerationTelemetry(
@@ -55,7 +56,18 @@ class FakeSQLGenerator:
         )
 
 
-def default_fake_result(prompt: SQLGenerationPrompt) -> SQLGenerationResult:
+def default_fake_result(
+    prompt: SQLGenerationPrompt,
+    profile: str = "placeholder",
+) -> SQLGenerationResult:
+    if profile == "demo":
+        return demo_fake_result(prompt) or placeholder_fake_result(prompt)
+    if profile != "placeholder":
+        raise ValueError(f"Unsupported fake SQL generation profile: {profile}")
+    return placeholder_fake_result(prompt)
+
+
+def placeholder_fake_result(prompt: SQLGenerationPrompt) -> SQLGenerationResult:
     return SQLGenerationResult(
         sql="SELECT 1 AS generated_sql_placeholder;",
         explanation=f"Fake SQL draft for: {prompt.original_question}",
@@ -66,6 +78,36 @@ def default_fake_result(prompt: SQLGenerationPrompt) -> SQLGenerationResult:
         clarification_needed=False,
         clarification_options=[],
     )
+
+
+def demo_fake_result(prompt: SQLGenerationPrompt) -> SQLGenerationResult | None:
+    question = " ".join(prompt.original_question.casefold().split())
+    if question == "list cancelled orders for the demo smoke test":
+        return SQLGenerationResult(
+            sql=(
+                "SELECT order_number, status FROM commerce.orders "
+                "WHERE status = 'cancelled' ORDER BY order_number;"
+            ),
+            explanation="Lists the seeded cancelled orders for the deterministic smoke test.",
+            model_confidence=0.99,
+            tables_used=["commerce.orders"],
+            columns_used=["commerce.orders.order_number", "commerce.orders.status"],
+            assumptions=[],
+            clarification_needed=False,
+            clarification_options=[],
+        )
+    if question == "show cancelled orders for the unsafe smoke test":
+        return SQLGenerationResult(
+            sql="DELETE FROM commerce.orders WHERE status = 'cancelled';",
+            explanation="Intentional unsafe fixture; guardrails must reject it.",
+            model_confidence=0.99,
+            tables_used=["commerce.orders"],
+            columns_used=["commerce.orders.status"],
+            assumptions=[],
+            clarification_needed=False,
+            clarification_options=[],
+        )
+    return None
 
 
 def token_total(input_tokens: int | None, output_tokens: int | None) -> int | None:

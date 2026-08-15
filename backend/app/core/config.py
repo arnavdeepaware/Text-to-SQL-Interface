@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     database_statement_timeout_ms: int = Field(default=5_000, ge=100, le=60_000)
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=0, ge=0, le=20)
-    audit_database_user: str = "text_to_sql_owner"
-    audit_database_password: SecretStr = SecretStr("text_to_sql_local_password")
+    audit_database_user: str = "text_to_sql_audit_writer"
+    audit_database_password: SecretStr = SecretStr("text_to_sql_audit_writer_local_password")
     query_history_enabled: bool = True
     query_history_default_limit: int = Field(default=25, ge=1, le=100)
     query_history_max_limit: int = Field(default=100, ge=1, le=500)
@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     prompt_max_few_shot_examples: int = Field(default=3, ge=0, le=8)
     sql_generation_model: str = "gpt-4.1-mini"
     sql_generation_provider: Literal["openai", "fake"] = "openai"
+    sql_generation_fake_profile: Literal["placeholder", "demo"] = "placeholder"
     sql_generation_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
     sql_generation_max_retries: int = Field(default=1, ge=0, le=3)
     sql_generation_max_output_tokens: int = Field(default=1_000, ge=100, le=8_000)

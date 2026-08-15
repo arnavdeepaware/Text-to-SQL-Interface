@@ -43,8 +43,20 @@ paginated history with retention and privacy-limit placeholders, and `POST /v1/f
 correct/incorrect/unsure feedback linked to a query audit record. The generated-query reader role is
 explicitly denied access to audit tables.
 
+## Phase 5 — Frontend Portfolio Interface
+
+**Status:** Complete
+
+The React and TypeScript frontend now provides a portfolio-ready query workspace for the
+production backend contracts. Users can submit natural-language questions, review generated SQL,
+inspect explanations and sortable results, distinguish blocked queries from request failures,
+respond to clarification options, review validated confidence signals separately from model
+confidence, load query history, and submit idempotency-aware feedback. The interface includes
+responsive laptop, tablet, and narrow mobile layouts, accessible names and live status regions,
+keyboard-reachable table overflow, stable loading placeholders, an app-level rendering fallback,
+and a production Dockerfile for static serving.
+
 ## Next phase
 
-Phase 5 should add frontend result presentation, broader adversarial eval reports, automated
-retention enforcement, and release-readiness hardening without weakening the established read-only
-execution boundary.
+Future work should add broader adversarial eval reports, automated retention enforcement, and
+release-readiness hardening without weakening the established read-only execution boundary.

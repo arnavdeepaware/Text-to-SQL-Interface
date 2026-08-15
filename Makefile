@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration compose-check db-up db-down db-reset db-smoke check
+.PHONY: backend-install backend-dev backend-test backend-integration-test backend-lint backend-typecheck backend-check backend-check-integration frontend-install frontend-dev frontend-test frontend-lint frontend-build frontend-check compose-check db-up db-down db-reset db-smoke stack-up stack-down stack-reset stack-logs stack-smoke eval-validate eval-run check
 
 UV ?= $(shell command -v uv >/dev/null 2>&1 && printf uv || printf 'python3 -m uv')
 
@@ -24,8 +24,43 @@ backend-check: backend-lint backend-typecheck backend-test
 
 backend-check-integration: backend-lint backend-typecheck backend-test backend-integration-test
 
+frontend-install:
+	npm --prefix frontend install
+
+frontend-dev:
+	npm --prefix frontend run dev
+
+frontend-test:
+	npm --prefix frontend run test
+
+frontend-lint:
+	npm --prefix frontend run lint
+
+frontend-build:
+	npm --prefix frontend run build
+
+frontend-check:
+	npm --prefix frontend run check
+
 compose-check:
 	docker compose config -q
+
+stack-up:
+	docker compose up -d --build --wait
+
+stack-down:
+	docker compose down
+
+stack-reset:
+	docker compose down --volumes --remove-orphans
+	docker compose up -d --build --wait
+
+stack-logs:
+	docker compose logs --follow --tail=200
+
+stack-smoke:
+	docker compose up -d --wait --no-build
+	docker compose exec -T backend python -m app.cli.full_stack_smoke
 
 db-up:
 	docker compose up -d --wait postgres
@@ -40,4 +75,10 @@ db-reset:
 db-smoke:
 	./scripts/database-smoke-test.sh
 
-check: compose-check backend-check db-up db-smoke backend-integration-test
+eval-validate:
+	$(UV) --directory backend run python -m app.cli.evaluate --dataset ../evals/cases/text_to_sql_v1.json --reports ../evals/reports --validate-only
+
+eval-run:
+	$(UV) --directory backend run python -m app.cli.evaluate --dataset ../evals/cases/text_to_sql_v1.json --reports ../evals/reports --provider fake
+
+check: compose-check backend-check frontend-check eval-validate db-up db-smoke backend-integration-test eval-run

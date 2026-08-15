@@ -28,7 +28,8 @@ def test_settings_use_default_values(monkeypatch: MonkeyPatch) -> None:
     assert settings.database_port == 5432
     assert settings.database_name == "text_to_sql"
     assert settings.database_user == "text_to_sql_reader"
-    assert settings.audit_database_user == "text_to_sql_owner"
+    assert settings.audit_database_user == "text_to_sql_audit_writer"
+    assert settings.sql_generation_fake_profile == "placeholder"
     assert settings.query_history_enabled is True
     assert settings.query_history_default_limit == 25
     assert settings.query_history_max_limit == 100

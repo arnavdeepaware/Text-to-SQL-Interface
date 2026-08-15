@@ -475,7 +475,7 @@ def get_sql_generator(
 
 def default_sql_generator_factory(settings: Settings) -> SQLGenerator:
     if settings.sql_generation_provider == "fake":
-        return FakeSQLGenerator()
+        return FakeSQLGenerator(profile=settings.sql_generation_fake_profile)
     return OpenAISQLGenerator(settings)
 
 

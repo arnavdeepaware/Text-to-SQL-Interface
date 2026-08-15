@@ -110,6 +110,19 @@ def test_fake_generator_failures_are_typed(mode: str, expected_error: type[Excep
         FakeSQLGenerator(mode=mode).generate(fake_prompt())
 
 
+def test_demo_fake_generator_returns_safe_and_unsafe_smoke_fixtures() -> None:
+    safe = FakeSQLGenerator(profile="demo").generate(
+        fake_prompt("List cancelled orders for the demo smoke test")
+    )
+    unsafe = FakeSQLGenerator(profile="demo").generate(
+        fake_prompt("Show cancelled orders for the unsafe smoke test")
+    )
+
+    assert safe.result.sql is not None
+    assert safe.result.sql.startswith("SELECT order_number, status")
+    assert unsafe.result.sql == "DELETE FROM commerce.orders WHERE status = 'cancelled';"
+
+
 def test_openai_generator_fails_closed_without_credentials() -> None:
     generator = OpenAISQLGenerator(Settings(environment="test", openai_api_key=None))
 
@@ -196,13 +209,13 @@ def test_openai_generator_malformed_output_fails_safely_without_retry() -> None:
     assert client.responses.calls == 1
 
 
-def fake_prompt() -> SQLGenerationPrompt:
+def fake_prompt(question: str = "How many orders?") -> SQLGenerationPrompt:
     return SQLGenerationPrompt(
-        original_question="How many orders?",
+        original_question=question,
         sql_dialect="PostgreSQL",
         messages=(
             PromptMessage("system", "Return structured SQL."),
-            PromptMessage("user", "How many orders?"),
+            PromptMessage("user", question),
         ),
         selected_few_shot_ids=(),
         context_budget_chars=1000,
