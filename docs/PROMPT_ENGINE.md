@@ -1,6 +1,6 @@
 # Prompt Engine
 
-The schema-aware prompt engine builds provider-neutral prompts for future Text-to-SQL generation. It does not call an LLM, generate SQL dynamically, execute SQL, or expose an HTTP endpoint.
+The schema-aware prompt engine builds provider-neutral prompts for the active Text-to-SQL generation workflow. It does not call an LLM, execute SQL, or expose an HTTP endpoint; provider adapters consume its structured prompt.
 
 ## Inputs
 
