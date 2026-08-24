@@ -1,45 +1,41 @@
-# Intended Architecture
+# Current Architecture
 
-## Request path
+## Request lifecycle
 
-1. The React interface submits a natural-language question to the FastAPI API.
-2. The API passes it to an orchestration service that retrieves an allowlisted schema context.
-3. A provider adapter proposes SQL and structured reasoning metadata.
-4. Guardrails parse and validate the query against policy and schema; ambiguous or unsupported output is rejected.
-5. A hallucination detector checks referenced tables, columns, joins, and answer alignment.
-6. A confidence service combines model and deterministic validation signals.
-7. Only an approved query runs through a PostgreSQL read-only role with time, row, and cost bounds.
-8. The API returns results, SQL, confidence, and any limitations to the UI; redacted audit history
-   and feedback are recorded without secrets.
+1. React submits a natural-language question to FastAPI.
+2. The schema catalog introspects the configured `commerce` schema, caches safe metadata, and retrieves relevant tables, columns, glossary terms, and foreign-key paths.
+3. The prompt engine renders retrieved context, safe samples, relationship paths, and selected resource-backed examples. Expected evaluation SQL is never included in evaluated prompts.
+4. Known business ambiguities are detected before provider calls. The API returns clarification options for revenue meaning, date basis, location, refunds, and order status.
+5. A provider returns structured SQL, explanation, references, assumptions, confidence, and telemetry. Fake providers are deterministic; live providers are opt-in.
+6. SQLGlot parses PostgreSQL SQL. Guardrails enforce one read-only statement, schema/table/column policy, safe structure, and bounded output.
+7. The executor runs `EXPLAIN (FORMAT JSON)` and rejects plans over configured cost, row, relation, or timeout limits.
+8. Approved SQL executes in a read-only transaction with statement and lock timeouts, row limits, and rollback behavior.
+9. Signals and confidence are calculated. The API returns SQL, rows, execution metadata, guardrail findings, confidence, warnings, and provider metadata.
+10. History stores redacted normalized questions, approved SQL when available, outcomes, metadata, and feedback in an isolated audit schema.
 
 ## Components
 
-- `backend/app/api`: request contracts and HTTP endpoints.
-- `backend/app/core`: configuration, policy, logging, and security primitives.
-- `backend/app/domain`: SQL/query, schema, confidence, and evaluation models.
-- `backend/app/providers`: LLM provider abstractions and implementations.
-- `backend/app/services`: generation, validation, execution, and scoring workflows.
-- `backend/app/services/schema_retrieval.py`: provider-neutral schema-context retrieval for
-  natural-language questions, including deterministic lexical ranking and preserved
-  foreign-key bridge paths.
-- `backend/app/services/prompt_engine.py`: provider-neutral prompt construction using retrieved
-  schema context, safe samples, glossary terms, relationship paths, and resource-backed few-shot
-  examples.
-- `backend/app/api/query.py`: generation-only SQL draft endpoint with deterministic ambiguity
-  handling, request IDs, and stable public errors. SQL execution is out of scope.
-- `backend/app/api/history.py`, `backend/app/services/query_history.py`, and
-  `backend/app/repositories/query_history.py`: redacted query history and feedback capture backed
-  by isolated audit tables.
-- `backend/app/repositories` and `backend/app/db`: schema metadata and database access.
-- `database/init`: reproducible local PostgreSQL setup.
-- `evals/cases`: curated fixtures; `evals/reports`: generated evaluation output.
-- `frontend/src`: query experience and safe presentation of outcomes.
+- `backend/app/api`: health, schema, draft, execution, history, and feedback contracts.
+- `backend/app/core`: settings, logging, redaction, and security primitives.
+- `backend/app/domain`: query, schema, evaluation, confidence, history, and guardrail models.
+- `backend/app/providers`: fake/scripted, OpenAI, embedding, and alignment adapters.
+- `backend/app/services`: retrieval, prompting, workflow, validation, execution, confidence, history, and evaluation.
+- `database/init`: reproducible schema, synthetic seed data, audit schema, and roles.
+- `frontend/src`: query workspace, results, confidence, history, feedback, and accessible states.
+- `evals/cases`: versioned fixtures; `evals/reports`: ignored generated output.
 
-## Security boundary
+## Trust boundaries
 
-The backend, not the frontend or model provider, owns authorization and execution. Reject on validation uncertainty. Generated SQL may only be read-only and must execute with least privilege.
+The backend, not the browser or provider, owns authorization and execution. The generated-query role can select only named commerce tables and cannot access `text_to_sql_audit`. The audit-writer role can write audit tables but cannot read commerce data. The owner role is initialization-only.
 
-Audit/history data lives in `text_to_sql_audit`, outside the schemas exposed to generated SQL.
-The generated-query role is granted only named commerce tables and is explicitly denied access to
-audit tables. The redaction layer masks likely secrets, but it is a configurable safeguard rather
-than a complete data-loss-prevention system.
+Static validation, plan inspection, and database privileges are independent defenses. A provider that emits valid-looking destructive SQL still cannot write because it never receives write privileges and AST policy rejects it before execution.
+
+## Signals and confidence
+
+Deterministic signals cover SQL syntax, guardrail approval, schema coverage, provider metadata agreement, result sanity, and execution evidence. Optional semantic back-translation and multi-query agreement are represented as passed, failed, unavailable, or not applicable. Confidence aggregates configured weights, treats critical missing evidence as unavailable, caps provider-reported confidence at a small auxiliary weight, and forces a blocked band for hard failures.
+
+## Privacy and operational boundaries
+
+History excludes raw result rows, raw prompts, credentials, stack traces, and full provider responses by design. Likely secrets are redacted before persistence, but this is not complete DLP. Retention durations are configuration placeholders; automated deletion is not implemented.
+
+Compose provides PostgreSQL, backend, and frontend healthchecks, startup dependencies, local fake-provider defaults, bounded resources, and non-root application containers. It is intended for local demonstration and CI, not production deployment.

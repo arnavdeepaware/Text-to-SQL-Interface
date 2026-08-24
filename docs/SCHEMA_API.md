@@ -34,4 +34,3 @@ The endpoint does not expose database credentials or raw database errors. Unexpe
 - `TEXT_TO_SQL_SCHEMA_SAMPLE_LIMIT`: maximum distinct sample values per safe categorical column, defaulting to 20.
 - `TEXT_TO_SQL_SCHEMA_SAMPLE_TIMEOUT_MS`: statement timeout for each sample query, defaulting to 1000 milliseconds.
 - `TEXT_TO_SQL_SCHEMA_SAMPLE_COLUMNS`: explicit safe sample column allowlist.
-

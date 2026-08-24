@@ -1,62 +1,24 @@
 # Project Status
 
-## Phase 0 — Foundation
+## Complete
 
-**Status:** Complete
+- Foundation, contributor guidance, FastAPI health endpoints, PostgreSQL schema, deterministic seed data, and local/CI checks.
+- Schema introspection, safe sample selection, glossary and relationship retrieval, deterministic lexical retrieval, and schema-aware prompts.
+- Structured providers, ambiguity handling, draft generation, and stable public errors.
+- PostgreSQL-aware AST validation, schema allowlisting, SELECT-only policy, bounded results, EXPLAIN cost/row checks, read-only transactions, timeouts, and rollback.
+- Explainable hallucination and confidence signals, including schema coverage, metadata agreement, result sanity, optional semantic alignment, and optional multi-query agreement.
+- Redacted audit history and feedback in an isolated schema with separate owner, query-reader, and audit-writer roles.
+- React/TypeScript workspace with SQL transparency, results, confidence, blocked states, clarification, history, feedback, responsive layouts, and accessibility coverage.
+- Docker Compose with PostgreSQL, FastAPI, React/Nginx, health ordering, fake-provider demo mode, and deterministic safe/unsafe smoke tests.
+- Versioned 50-case evaluation suite with JSON/Markdown reports, evaluator tests, ignored transient artifacts, and explicit live-provider opt-in.
 
-The repository foundation is in place: contributor instructions, architecture documentation, roadmap, FastAPI health checks, PostgreSQL schema and deterministic seed data, backend database connectivity, and local/CI quality checks.
+## Latest measured evaluation
 
-## Phase 1 — Schema-Aware Generation
+The generated report is deterministic fake-provider evidence for `seeded_commerce_core` v1. It reports 50/50 declared outcomes, 23/25 result matches, 23/25 SQL exact matches, 13/13 ambiguity accuracy, 7/7 unsupported-question handling, 10/13 hallucination precision, 10/11 hallucination recall, 10/10 generated-query guardrail effectiveness, and zero unsafe-query escapes. SQL exact match is diagnostic; result matching is primary. No live-model benchmark is published.
 
-**Status:** Complete
+## Optional or remaining
 
-The backend now introspects the commerce schema, enriches it with safe categorical samples and glossary context, retrieves relevant tables and columns for user questions, detects known business ambiguities, builds schema-aware prompts, and generates structured SQL drafts through the provider abstraction.
-
-## Phase 2 — Guardrails And Read-Only Execution
-
-**Status:** Complete
-
-Generated SQL is parsed with PostgreSQL-aware AST validation, schema references are checked against the introspected catalog, structural guardrail rules fail closed, result size is bounded through AST LIMIT rewriting, EXPLAIN JSON plans are inspected against configurable cost and row thresholds, and approved queries execute only through the read-only application role inside read-only transactions with rollback. `POST /v1/query` provides the safe end-to-end Text-to-SQL workflow with SQL, explanation, tabular results, execution metadata, guardrail metadata, and model metadata.
-
-## Phase 3 — Hallucination Detection And Confidence
-
-**Status:** Complete
-
-The backend now emits explainable validation signals for schema coverage, provider metadata
-agreement, result sanity, SQL-to-question back-translation alignment, and optional multi-query
-agreement. `POST /v1/query` calculates a deterministic confidence summary with configurable
-weights and thresholds, explicit high/medium/low/blocked bands, signal breakdowns, warnings, and a
-concise rationale. Confidence scoring treats unavailable evidence separately from failed evidence,
-keeps provider-reported model confidence as a small bounded auxiliary input, and preserves the
-existing fail-closed guardrail and read-only execution boundary.
-
-## Phase 4 — Query History, Feedback, And Privacy
-
-**Status:** Complete
-
-The backend now persists redacted query audit records and user feedback in an isolated
-`text_to_sql_audit` schema that is separate from the generated-SQL commerce dataset. Query history
-stores request IDs, normalized questions, approved SQL when available, outcomes, blocked reason
-codes, execution metadata, confidence summaries, provider telemetry, and timestamps without raw
-rows, raw prompts, credentials, stack traces, or full provider responses. `GET /v1/history` exposes
-paginated history with retention and privacy-limit placeholders, and `POST /v1/feedback` records
-correct/incorrect/unsure feedback linked to a query audit record. The generated-query reader role is
-explicitly denied access to audit tables.
-
-## Phase 5 — Frontend Portfolio Interface
-
-**Status:** Complete
-
-The React and TypeScript frontend now provides a portfolio-ready query workspace for the
-production backend contracts. Users can submit natural-language questions, review generated SQL,
-inspect explanations and sortable results, distinguish blocked queries from request failures,
-respond to clarification options, review validated confidence signals separately from model
-confidence, load query history, and submit idempotency-aware feedback. The interface includes
-responsive laptop, tablet, and narrow mobile layouts, accessible names and live status regions,
-keyboard-reachable table overflow, stable loading placeholders, an app-level rendering fallback,
-and a production Dockerfile for static serving.
-
-## Next phase
-
-Future work should add broader adversarial eval reports, automated retention enforcement, and
-release-readiness hardening without weakening the established read-only execution boundary.
+- Live provider evaluation and embedding retrieval require explicit configuration and are not part of default CI.
+- Automated history and feedback retention enforcement is not implemented.
+- Authentication, authorization, multi-tenancy, production secret management, TLS, managed deployment, backups, migrations, and operational monitoring remain deployment work.
+- Broader adversarial evaluation, provider comparison, richer telemetry, and release hardening are future improvements.

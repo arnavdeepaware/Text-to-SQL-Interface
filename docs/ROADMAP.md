@@ -1,8 +1,8 @@
 # Roadmap
 
-1. **Phase 0 — Foundation:** repository layout, contributor guidance, architecture, and planning conventions.
-2. **Phase 1 — Local platform:** Docker Compose, PostgreSQL initialization, backend/frontend toolchains, and configuration.
-3. **Phase 2 — Schema-aware generation:** metadata ingestion, provider abstraction, and structured SQL proposals.
-4. **Phase 3 — Guarded execution:** fail-closed validation, least-privilege access, query limits, hallucination detection, and confidence scoring.
-5. **Phase 4 — Product interface:** React query flow, result rendering, SQL transparency, errors, and confidence communication.
-6. **Phase 5 — Evaluation and hardening:** benchmark cases, reports, integration testing, observability, and release readiness.
+1. **Foundation:** repository guidance, architecture conventions, health checks, and deterministic local data.
+2. **Schema-aware generation:** introspection, glossary and relationship retrieval, prompt construction, and structured provider output.
+3. **Guarded execution:** fail-closed validation, least-privilege access, plan/resource limits, hallucination signals, and confidence scoring.
+4. **Product interface:** React query flow, SQL transparency, results, errors, clarification, history, confidence, and feedback.
+5. **Evaluation and full-stack hardening:** 50-case golden suite, deterministic reports, evaluator tests, Docker Compose, healthchecks, and CI smoke coverage.
+6. **Optional release work:** broader adversarial/live-model evaluation, automated retention, authentication, deployment automation, observability, and provider comparison.

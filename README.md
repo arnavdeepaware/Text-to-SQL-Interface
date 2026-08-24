@@ -1,170 +1,164 @@
 # Text-to-SQL Interface
 
-A portfolio-quality Text-to-SQL system that turns natural-language questions into safe, schema-aware, read-only PostgreSQL queries. It is designed around guardrails, hallucination detection, confidence scoring, and repeatable evaluation.
+An internal proposal and portfolio case study for turning natural-language analytics questions into schema-aware, read-only PostgreSQL queries.
 
-## Intended architecture
+## Problem
 
-- `backend/` — FastAPI service, domain logic, database access, and tests.
-- `database/` — local database initialization assets.
-- `evals/` — evaluation cases and generated reports.
-- `frontend/` — React and TypeScript user interface.
-- `docs/` — architecture, roadmap, ADRs, and execution plans.
+Text-to-SQL helps people ask business questions without knowing the database schema. Plain LLM-generated SQL is unsafe to execute directly: it can invent tables or columns, confuse gross and net definitions, produce destructive statements, expose unintended data, or consume excessive resources. This system treats generated SQL as an untrusted proposal and makes validation, least privilege, transparency, and clarification part of the product.
 
-The root-level Python prototype is existing exploratory work; the planned implementation lives in the directories above.
+## Implemented features
 
-## Status
+- Schema retrieval and prompt construction with glossary terms, safe samples, and relationship paths.
+- FastAPI draft and guarded execution APIs with stable public errors.
+- PostgreSQL AST parsing, schema allowlisting, SELECT-only policy, bounded results, and EXPLAIN plan limits.
+- Read-only transactions with statement, lock, row, and cost bounds.
+- Explainable hallucination signals and confidence bands.
+- Redacted history and feedback in an isolated audit schema.
+- React/TypeScript workspace for SQL, results, confidence, warnings, blocked outcomes, history, and feedback.
+- A versioned 50-case evaluation suite and deterministic Docker Compose demo.
 
-Phase 5 (evaluation and hardening) is in progress. See [docs/STATUS.md](docs/STATUS.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Architecture
 
-## Setup
-
-Install the backend toolchain with uv:
-
-```bash
-make backend-install
+```mermaid
+flowchart LR
+    Browser[React browser] --> Frontend[Nginx frontend]
+    Frontend --> API[FastAPI API]
+    API --> Retrieval[Schema retrieval and prompt engine]
+    Retrieval --> Provider[Fake or optional live provider]
+    Provider --> Guardrails[AST, schema, policy, and plan checks]
+    Guardrails --> Confidence[Signals and confidence scoring]
+    Guardrails --> Reader[(PostgreSQL commerce read-only role)]
+    API --> Audit[(PostgreSQL audit schema audit-writer role)]
+    Guardrails -. blocked or clarify .-> API
 ```
 
-Install the frontend toolchain with npm:
+The lifecycle is: normalize the question; retrieve an allowlisted schema context; detect known ambiguity; generate structured SQL; parse and validate; inspect the plan; execute only through the read-only role; calculate signals and confidence; persist redacted metadata; and return SQL, results, limitations, and telemetry. Any uncertain or unsafe stage fails closed.
 
-```bash
-make frontend-install
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as API
+    participant G as Generator
+    participant V as Validator
+    participant D as Read-only DB
+    U->>A: Natural-language question
+    A->>A: Normalize and detect ambiguity
+    alt Ambiguous or unsupported
+        A-->>U: Clarification options
+    else Candidate SQL
+        A->>G: Retrieved schema context
+        G-->>A: Structured SQL draft
+        A->>V: AST, schema, policy, and plan validation
+        alt Unsafe, malformed, or expensive
+            V-->>A: Stable blocked error
+            A-->>U: Not executed
+        else Approved
+            A->>D: Read-only bounded transaction
+            D-->>A: Rows and execution metadata
+            A-->>U: SQL, results, confidence, and warnings
+        end
+    end
 ```
 
-Start local PostgreSQL when you need database-backed checks:
+## Defense in depth
 
-```bash
-make db-up
-make db-smoke
-```
+The backend, not the browser or provider, owns execution. Controls include schema and column allowlists, PostgreSQL-aware AST validation, single-statement and SELECT-only policy, LIMIT rewriting, EXPLAIN JSON cost and row thresholds, read-only transactions, statement and lock timeouts, rollback, and a database role with no write or audit-schema access. A generated destructive query is rejected before execution and would also lack write privilege.
 
-The backend reads `TEXT_TO_SQL_DATABASE_*` variables and defaults to the local Docker read-only role. Keep real overrides in `.env`; `.env.example` lists variable names only.
+Hallucination signals cover schema-reference coverage, provider metadata agreement, result sanity, SQL-to-question back-translation alignment, and optional independent multi-query agreement. Confidence combines SQL execution, guardrail approval, schema coverage, result sanity, optional semantic and agreement signals, and a small bounded provider-confidence contribution. The API exposes component status, score, weight, evidence, warnings, rationale, and confidence band.
 
-## Full stack
+## Evaluation snapshot
 
-Start the complete deterministic demo stack with one command:
+This is the latest generated **deterministic scripted fake-provider** report for `seeded_commerce_core` v1, dataset SHA-256 `6cdff6253910f87e4acd21a43a43adf218aed35d56539947c72af75a1a0e3b5b`. The report contains no live-model result and no generated timestamp.
+
+| Metric                                  |  Actual result |
+| --------------------------------------- | -------------: |
+| Declared fixture outcomes met           |          50/50 |
+| Executable result match                 |    23/25 (92%) |
+| SQL exact match, diagnostic             |    23/25 (92%) |
+| Ambiguity detection accuracy            |   13/13 (100%) |
+| Unsupported-question handling           |     7/7 (100%) |
+| Hallucination precision                 | 10/13 (76.92%) |
+| Hallucination recall                    | 10/11 (90.91%) |
+| Generated-query guardrail effectiveness |   10/10 (100%) |
+| Unsafe-query escapes                    |              0 |
+
+Result matching is primary for executable cases because equivalent SQL can differ textually. Two intentional semantic-mismatch fixtures execute but do not match expected results, so “50/50” means declared routing and safety outcomes, not model accuracy. Stable regression gates cover minimum cases, infrastructure failures, and unsafe escapes; exploratory quality metrics are reported without favorable thresholds.
+
+The default evaluator makes no network calls and does not place golden SQL in evaluated prompts. Live evaluation requires both `--provider openai --allow-live` and `TEXT_TO_SQL_EVAL_ALLOW_LIVE=true`; no live benchmark is published. Generate the ignored report with `make eval-run`.
+
+## Technology stack
+
+Python 3.11, FastAPI, Pydantic 2, SQLAlchemy 2, PostgreSQL 16, SQLGlot, uv, React 19, TypeScript, Vite, Vitest, Nginx, Docker Compose, and GitHub Actions.
+
+## Quickstart
 
 ```bash
 docker compose up --build
 ```
 
-Or run it in the background and wait for all service healthchecks:
+Open `http://localhost:8080`. Or run in the background and wait for healthchecks:
 
 ```bash
 make stack-up
 make stack-smoke
 ```
 
-The frontend is available at `http://localhost:8080`; it proxies API requests to the backend. The
-backend connects to PostgreSQL with the read-only query role and a separate, restricted audit-writer
-role. PostgreSQL owner credentials remain inside the database service for initialization only.
-
-Useful local commands:
+Useful commands:
 
 ```bash
 make stack-logs       # follow PostgreSQL, backend, and frontend logs
-make stack-down       # stop services and retain the seeded volume
-make stack-reset      # remove the volume, rebuild, and reseed deterministically
+make stack-down       # stop services and retain the database volume
+make stack-reset      # remove the volume and reseed deterministically
 ```
 
-If startup remains unhealthy, inspect `make stack-logs`; a stale volume may have been initialized
-with older role credentials, in which case use `make stack-reset`. The default fake demo provider
-does not make network calls. To use a live provider, explicitly set
-`TEXT_TO_SQL_SQL_GENERATION_PROVIDER=openai` and `TEXT_TO_SQL_OPENAI_API_KEY` in an untracked
-`.env` file; no API key is included in an image or tracked configuration.
+## Configuration and deployment
 
-## Development
+Copy `.env.example` to an untracked `.env` for local overrides. PostgreSQL owner credentials initialize the database; generated queries use a separate read-only role; audit writes use a restricted role. Secrets are environment variables and are not baked into images or tracked configuration. The default Compose provider is fake/demo and makes no network calls.
 
-Start the FastAPI backend locally:
+Compose is a local demo and CI environment, not production deployment infrastructure. Production would additionally need managed secrets, TLS, authentication and authorization, rate limiting, backups and migrations, observability, automated retention, network policy, and a supported live-provider dependency. The optional OpenAI adapter is not part of the default fake-provider image path.
+
+## API examples
+
+See [docs/QUERY_API.md](docs/QUERY_API.md) for the complete contract. A draft never executes SQL:
 
 ```bash
-make backend-dev
+curl -s http://localhost:8080/v1/query/draft -H 'content-type: application/json' \
+  -d '{"question":"Calculate net revenue"}'
 ```
 
-Start the Vite frontend locally:
+The guarded endpoint returns SQL, rows, plan metadata, guardrails, confidence, and provider metadata:
 
 ```bash
-make frontend-dev
+curl -s http://localhost:8080/v1/query -H 'content-type: application/json' \
+  -d '{"question":"List cancelled orders for the demo smoke test"}'
 ```
 
-The frontend reads `VITE_API_BASE_URL` at build and dev-server time. Leave it unset when the
-frontend is served behind the same origin as the API, or set it to a backend origin such as
-`http://localhost:8000` during local split-server development.
-
-Run focused backend checks while developing:
-
-```bash
-make backend-test
-make backend-lint
-make backend-typecheck
-```
-
-Run focused frontend checks while developing:
-
-```bash
-make frontend-test
-make frontend-lint
-make frontend-build
-```
-
-Validate Docker Compose:
-
-```bash
-make compose-check
-```
-
-Run the opt-in database integration tests after PostgreSQL is running:
-
-```bash
-make backend-integration-test
-```
-
-Run the complete backend check before finishing backend work:
+## Checks
 
 ```bash
 make backend-check
-```
-
-Run the complete frontend check before finishing frontend work:
-
-```bash
 make frontend-check
-```
-
-To include database integration tests in the complete backend pass:
-
-```bash
-make backend-check-integration
-```
-
-Mirror the main CI checks locally:
-
-```bash
-make check
-make db-down
-```
-
-`make check` validates Compose, runs Ruff, mypy, unit tests, starts PostgreSQL, smoke-tests the seed database, and runs integration tests. `make db-down` stops the local database afterward.
-
-## Evaluation
-
-The versioned seeded-commerce suite has 50 distinct cases across execution, ambiguity,
-unsupported-question, malformed-request, guardrail, and hallucination scenarios. It uses a
-deterministic scripted fake generator by default, runs through the normal guardrail and read-only
-execution path, and writes transient JSON plus a concise portfolio-summary Markdown report to
-`evals/reports/`.
-
-```bash
 make eval-validate
-make db-up
+make db-up && make db-smoke && make backend-integration-test
 make eval-run
+make check
 ```
 
-SQL exact match is reported as a diagnostic. Result matching against the seeded database is the
-primary correctness metric for executable cases; the report also covers ambiguity and unsupported
-question handling, label-backed hallucination precision/recall, guardrail effectiveness, and unsafe
-query escapes. Live evaluation is intentionally not a Make target; it requires `--provider openai
---allow-live` and `TEXT_TO_SQL_EVAL_ALLOW_LIVE=true`.
+Generated JSON/Markdown reports under `evals/reports/` are transient and ignored by Git.
 
-## Security
+## Repository structure
 
-Generated SQL must be schema-validated, bounded, and executed only through a least-privilege read-only database role.
+```text
+backend/    FastAPI app, domain models, services, providers, persistence, and tests
+database/   PostgreSQL schema, seed data, roles, and smoke checks
+evals/      Versioned cases and ignored generated reports
+frontend/   React/TypeScript application and tests
+docs/       Architecture, APIs, demo/interview guides, status, roadmap, and plans
+scripts/    Database and local workflow utilities
+```
+
+## Limitations and future improvements
+
+The seeded data is synthetic and small. Fake-provider evaluation validates the harness, routing, guardrails, and fixtures; it does not establish live-model generalization. Retention settings exist but automated cleanup is not implemented. Redaction is a safeguard, not complete DLP. Authentication, multi-tenancy, production deployment automation, and a published live-model benchmark remain optional work. Broader adversarial evaluation, retention enforcement, richer telemetry, and provider comparison are useful next steps.
+
+See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), [docs/INTERVIEW_TALK_TRACK.md](docs/INTERVIEW_TALK_TRACK.md), [docs/STATUS.md](docs/STATUS.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
